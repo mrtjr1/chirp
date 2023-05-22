@@ -5,7 +5,7 @@
 | <a name="Abbree_AR-518"></a> Abbree_AR-518 | [@KC9HI](https://github.com/KC9HI) | 16-Dec-2022 | Yes | 0.24% |
 | <a name="Abbree_AR-63"></a> Abbree_AR-63 | [@KC9HI](https://github.com/KC9HI) | 30-Nov-2022 | Yes | 0.03% |
 | <a name="Alinco_DJ-G7EG"></a> Alinco_DJ-G7EG | [@HB9UF](https://github.com/HB9UF) | 09-Dec-2022 | Yes | 0.44% |
-| <a name="Alinco_DJ-G7T"></a> Alinco_DJ-G7T |  |  | Yes |  |
+| <a name="Alinco_DJ-G7T"></a> Alinco_DJ-G7T | [Reported working](https://chirp.danplanet.com/issues/10567) | 09-May-2023 | Yes |  |
 | <a name="Alinco_DJ175"></a> Alinco_DJ175 | [Implied by Alinco_DR235T](#user-content-Alinco_DR235T) | 12-Dec-2022 | Yes | 0.03% |
 | <a name="Alinco_DJ596"></a> Alinco_DJ596 | [Implied by Alinco_DR235T](#user-content-Alinco_DR235T) | 12-Dec-2022 | Yes | 0.02% |
 | <a name="Alinco_DR03T"></a> Alinco_DR03T | [Implied by Alinco_DR235T](#user-content-Alinco_DR235T) | 12-Dec-2022 | Yes | 0.01% |
@@ -33,7 +33,9 @@
 | <a name="BTECH_UV-2501"></a> BTECH_UV-2501 | [@KC9HI](https://github.com/KC9HI) | 11-Nov-2022 | Yes | 0.02% |
 | <a name="BTECH_UV-2501+220"></a> BTECH_UV-2501+220 | [@KC9HI](https://github.com/KC9HI) | 11-Nov-2022 | Yes | 0.02% |
 | <a name="BTECH_UV-25X2"></a> BTECH_UV-25X2 | [@KC9HI](https://github.com/KC9HI) | 11-Nov-2022 | Yes | 0.15% |
+| <a name="BTECH_UV-25X2_G2"></a> BTECH_UV-25X2_G2 | [@KC9HI](https://github.com/KC9HI) | 23-Apr-2023 | Yes |  |
 | <a name="BTECH_UV-25X4"></a> BTECH_UV-25X4 | [@KC9HI](https://github.com/KC9HI) | 10-Nov-2022 | Yes | 0.11% |
+| <a name="BTECH_UV-25X4_G2"></a> BTECH_UV-25X4_G2 | [@KC9HI](https://github.com/KC9HI) | 23-Apr-2023 | Yes |  |
 | <a name="BTECH_UV-5001"></a> BTECH_UV-5001 | [@KC9HI](https://github.com/KC9HI) | 11-Nov-2022 | Yes | 0.03% |
 | <a name="BTECH_UV-50X2"></a> BTECH_UV-50X2 | [@KC9HI](https://github.com/KC9HI) | 11-Nov-2022 | Yes | 0.13% |
 | <a name="BTECH_UV-50X2_G2"></a> BTECH_UV-50X2_G2 | [@KC9HI](https://github.com/KC9HI) | 30-Nov-2022 | Yes | 0.00% |
@@ -43,6 +45,7 @@
 | <a name="Baofeng_BF-A58"></a> Baofeng_BF-A58 | [@KC9HI](https://github.com/KC9HI) | 3-Dec-2022 | Yes | **1.46%** |
 | <a name="Baofeng_BF-A58S"></a> Baofeng_BF-A58S | [@KC9HI](https://github.com/KC9HI) | 3-Dec-2022 | Yes | 0.59% |
 | <a name="Baofeng_BF-F8HP"></a> Baofeng_BF-F8HP | [@KC9HI](https://github.com/KC9HI) | 18-Nov-2022 | Yes | **6.33%** |
+| <a name="Baofeng_BF-M4"></a> Baofeng_BF-M4 | [@cetinajero](https://github.com/cetinajero) | 8-May-2023 | Yes |  |
 | <a name="Baofeng_BF-T1"></a> Baofeng_BF-T1 | [@KC9HI](https://github.com/KC9HI) | 10-Dec-2022 | Yes | 0.76% |
 | <a name="Baofeng_BF-T8"></a> Baofeng_BF-T8 | [@KC9HI](https://github.com/KC9HI) | 30-Nov-2022 | Yes | 0.42% |
 | <a name="Baofeng_BF-V8A"></a> Baofeng_BF-V8A | [@KC9HI](https://github.com/KC9HI) | 28-Nov-2022 | Yes | 0.03% |
@@ -87,7 +90,7 @@
 | <a name="Icom_IC-2720H"></a> Icom_IC-2720H | [Probably works](https://github.com/kk7ds/chirp/blob/py3/chirp/drivers/icf.py) | 12-Dec-2022 | Yes | 0.02% |
 | <a name="Icom_IC-2730A"></a> Icom_IC-2730A | [Reported working](https://chirp.danplanet.com/issues/10261) | 17-Dec-2022 | Yes | 0.21% |
 | <a name="Icom_IC-2820H"></a> Icom_IC-2820H | [@kk7ds](https://github.com/kk7ds) | 22-Oct-2022 | Yes | 0.04% |
-| <a name="Icom_IC-7000"></a> Icom_IC-7000 |  |  | Yes | 0.03% |
+| <a name="Icom_IC-7000"></a> Icom_IC-7000 | [Reported working](https://chirp.danplanet.com/issues/10510) | 10-Apr-2023 | Yes | 0.03% |
 | <a name="Icom_IC-7100"></a> Icom_IC-7100 | Mike W | 16-Feb-2023 | Yes | 0.06% |
 | <a name="Icom_IC-7200"></a> Icom_IC-7200 | [@kk7ds](https://github.com/kk7ds) | 22-Oct-2022 | Yes |  |
 | <a name="Icom_IC-7300"></a> Icom_IC-7300 | [@kk7ds](https://github.com/kk7ds) | 22-Oct-2022 | Yes | 0.03% |
@@ -215,7 +218,7 @@
 | <a name="Powerwerx_DB-750X"></a> Powerwerx_DB-750X | [Implied by AnyTone_5888UV](#user-content-AnyTone_5888UV) | 9-Dec-2022 | Yes | 0.01% |
 | <a name="Puxing_PX-2R"></a> Puxing_PX-2R |  |  |  | 0.05% |
 | <a name="Puxing_PX-777"></a> Puxing_PX-777 |  |  | Yes | 0.11% |
-| <a name="Puxing_PX-888K"></a> Puxing_PX-888K |  |  |  | 0.07% |
+| <a name="Puxing_PX-888K"></a> Puxing_PX-888K | [Reported working](https://chirp.danplanet.com/issues/10544) | 09-May-2023 | Yes | 0.07% |
 | <a name="Q-MAC_HF-90_v300_or_earlier"></a> Q-MAC_HF-90_v300_or_earlier | [@fthain](https://github.com/fthain) | 9-Mar-2023 | Yes |  |
 | <a name="Q-MAC_HF-90_v301_or_later"></a> Q-MAC_HF-90_v301_or_later | [@fthain](https://github.com/fthain) | 9-Mar-2023 | Yes |  |
 | <a name="QYT_KT-8R"></a> QYT_KT-8R | [@KC9HI](https://github.com/KC9HI) | 11-Nov-2022 | Yes | 0.09% |
@@ -238,6 +241,7 @@
 | <a name="Radioddity_UV-5RX3"></a> Radioddity_UV-5RX3 | [@KC9HI](https://github.com/KC9HI) | 18-Nov-2022 | Yes | 0.90% |
 | <a name="Radioddity_UV-82X3"></a> Radioddity_UV-82X3 | [@KC9HI](https://github.com/KC9HI) | 18-Nov-2022 | Yes | 0.05% |
 | <a name="Radtel_RT-470"></a> Radtel_RT-470 | [@KC9HI](https://github.com/KC9HI) | 2-Apr-2023 | Yes | 0.00% |
+| <a name="Radtel_RT-470L"></a> Radtel_RT-470L | [@KC9HI](https://github.com/KC9HI) | 5-May-2023 | Yes |  |
 | <a name="Radtel_T18"></a> Radtel_T18 | [@KC9HI](https://github.com/KC9HI) | 28-Nov-2022 | Yes | 0.07% |
 | <a name="Retevis_H777S"></a> Retevis_H777S | [@KC9HI](https://github.com/KC9HI) | 22-Dec-2022 | Yes |  |
 | <a name="Retevis_H777_Plus"></a> Retevis_H777_Plus | [@KC9HI](https://github.com/KC9HI) | 4-Dec-2022 | Yes | 0.06% |
@@ -351,6 +355,8 @@
 | <a name="Wouxun_KG-UV980P"></a> Wouxun_KG-UV980P | [@mrtjr1](https://github.com/mrtjr1) | 23-jan-2023 | Yes | 0.01% |
 | <a name="Wouxun_KG-UV9D_Plus"></a> Wouxun_KG-UV9D_Plus | [@samwich](https://github.com/samwich) | 10-Jan-2023 | Yes | 0.39% |
 | <a name="Wouxun_KG-UV9GX"></a> Wouxun_KG-UV9GX | [@mrtjr1](https://github.com/mrtjr1) | 27-Mar-2023 | Yes |  |
+| <a name="Wouxun_KG-UV9G_Pro"></a> Wouxun_KG-UV9G_Pro | [@mrtjr1](https://github.com/mrtjr1) | 25-Apr-2023 | Yes |  |
+| <a name="Wouxun_KG-UV9K"></a> Wouxun_KG-UV9K | [@mrtjr1](https://github.com/mrtjr1) | 14-Apr-2023 | Yes |  |
 | <a name="Wouxun_KG-UV9PX"></a> Wouxun_KG-UV9PX | [@mrtjr1](https://github.com/mrtjr1) | 20-Jan-2022 | Yes |  |
 | <a name="Wouxun_KG-UVD1P"></a> Wouxun_KG-UVD1P | [Implied by Wouxun_KG-UV6](#user-content-Wouxun_KG-UV6) | 11-Dec-2022 | Yes | 0.35% |
 | <a name="Yaesu_FT-1500M"></a> Yaesu_FT-1500M | [@f3sty](https://github.com/f3sty) | 05-Dec-2022 | Yes | 0.02% |
@@ -401,11 +407,11 @@
 | <a name="Zastone_ZT-X6"></a> Zastone_ZT-X6 | [Implied by Retevis_RT22](#user-content-Retevis_RT22) | 9-Dec-2022 | Yes | 0.11% |
 ## Stats
 
-**Drivers:** 398
+**Drivers:** 404
 
-**Tested:** 84% (337/61) (93% of usage stats)
+**Tested:** 85% (346/58) (93% of usage stats)
 
-**Byte clean:** 89% (356/42)
+**Byte clean:** 89% (363/41)
 
 ## Meaning of this testing
 

@@ -88,6 +88,8 @@ config_map = (          # map address, write size, write count
     (0x4840, 48, 1),    # Memory Channels 997-999
     (0x4900, 32, 249),  # Memory Names    1-996
     (0x6820, 24, 1),    # Memory Names    997-999
+    (0x7000, 8, 124),   # Valid Channel bytes 1-992
+    (0x73E0, 1, 7),     # Valid Channel Bytes 993-999
     (0x7400, 64, 5),    # CALL-ID 1-20, names 1-20
     )
 
@@ -121,6 +123,8 @@ config_map2 = (          # map address, write size, write count
     (0x4840, 48, 1),    # Memory Channels 997-999
     (0x4900, 32, 249),  # Memory Names    1-996
     (0x6820, 24, 1),    # Memory Names    997-999
+    (0x7000, 8, 124),   # Valid Channel bytes 1-992
+    (0x73E0, 1, 7),     # Valid Channel Bytes 993-999
     (0x7400, 64, 5),    # CALL-ID 1-20, names 1-20
     (0x7600,  1, 1)     # Screen Mode
     )
@@ -129,6 +133,10 @@ MEM_VALID = 0xfc
 MEM_INVALID = 0xff
 VALID_MEM_VALUES = [MEM_VALID, 0x00, 0x02, 0x40, 0x3D]
 INVALID_MEM_VALUES = [MEM_INVALID]
+# new CHAN_VALID/INVALID mem values to address some radios not showing
+# new channels
+CHAN_VALID = 0x41
+CHAN_INVALID = 0xFC
 # Radio memory map. This matches the reads/writes above.
 # structure elements whose name starts with x are currently unidentified
 
@@ -367,6 +375,11 @@ struct {
 struct {
     char name[8];
 } chan_name[999];
+
+#seekto 0x7000;
+struct {
+    u8 ch_valid;
+} chan_valid[999];
 
 #seekto 0x7400;
 struct {
@@ -639,6 +652,11 @@ struct {
     char pad[2];
 } cid_names[20];
 
+#seekto 0x7000;
+struct {
+    u8 ch_valid;
+} chan_valid[999];
+
 #seekto 0x7600;
 struct {
     u8 screen_mode;
@@ -896,7 +914,7 @@ def str2name(val, size=6, fillchar='\0', emptyfill='\0'):
     """ Convert a string to a name. A name is a 6 element bytearray
     with ascii chars.
     """
-    val = str(val).rstrip(' \t\r\n\0\0xff')
+    val = str(val).rstrip(' \t\r\n\0\xff')
     if len(val) == 0:
         name = "".ljust(size, emptyfill)
     else:
@@ -1004,8 +1022,10 @@ def _hex_print(data, addrfmt=None):
 
 # Useful UI lists
 STEPS = [2.5, 5.0, 6.25, 10.0, 12.5, 25.0, 50.0, 100.0]
+STEPS_9K = [2.5, 5.0, 6.25, 8.33, 10.0, 12.5, 25.0, 50.0, 100.0]
 S_TONES = [str(x) for x in [1000, 1450, 1750, 2100]]
 STEP_LIST = [str(x)+"kHz" for x in STEPS]
+STEP_LIST_9K = [str(x)+"kHz" for x in STEPS_9K]
 ROGER_LIST = ["Off", "Begin", "End", "Both"]
 TIMEOUT_LIST = [str(x) + "s" for x in range(15, 601, 15)]
 TOA_LIST = ["Off"] + ["%ds" % t for t in range(1, 11)]
@@ -1078,6 +1098,8 @@ class KGUV9DPlusRadio(chirp_common.CloneModeRadio,
     POWER_LEVELS = [chirp_common.PowerLevel("L", watts=1),
                     chirp_common.PowerLevel("M", watts=2),
                     chirp_common.PowerLevel("H", watts=5)]
+    _step_list = STEP_LIST
+    _valid_steps = STEPS
     _mmap = ""
 
     def _read_record(self):
@@ -1346,7 +1368,7 @@ class KGUV9DPlusRadio(chirp_common.CloneModeRadio,
                           (400000000, 520000000),  # supports 70cm
                           (700000000, 985000000)]
         rf.valid_characters = chirp_common.CHARSET_ASCII
-        rf.valid_tuning_steps = STEPS
+        rf.valid_tuning_steps = self._valid_steps
         rf.memory_bounds = (1, 999)  # 999 memories
         return rf
 
@@ -1416,6 +1438,7 @@ class KGUV9DPlusRadio(chirp_common.CloneModeRadio,
         """
         _mem = self._memobj.chan_blk[number - 1]
         _nam = self._memobj.chan_name[number - 1]
+        _val = self._memobj.chan_valid[number - 1]
 
         mem = chirp_common.Memory()
         mem.number = number
@@ -1438,6 +1461,7 @@ class KGUV9DPlusRadio(chirp_common.CloneModeRadio,
                 LOG.debug("CH %s Rx Freq = 0xFFFFFFFF - "
                           "Treating chan as empty", mem.number)
             mem.empty = True
+            _val.ch_valid = CHAN_INVALID
             return mem
         elif _valid in INVALID_MEM_VALUES:
             # Check for 9PX case where CPS creates a valid channel with
@@ -1447,19 +1471,23 @@ class KGUV9DPlusRadio(chirp_common.CloneModeRadio,
                 LOG.debug("CH %s State invalid - Rx Frq > 999.99999 MHz: "
                           "Treating chan as empty", mem.number)
                 mem.empty = True
+                _val.ch_valid = CHAN_INVALID
                 return mem
             else:
                 LOG.debug("CH %s State invalid - Rx Freq valid: "
                           "Assume chan valid", mem.number)
                 mem.empty = False
+                _val.ch_valid = CHAN_VALID
         else:  # State not Invalid and Rx Freq not 0xFFFFFFFF
             if _mem.rxfreq > 99999999:  # Max poss Value = 999.99999 MHz
                 LOG.debug("CH %s Invalid Rx Frq: %s MHz - "
                           "Treating chan as empty", mem.number,
                           int(_mem.rxfreq) / 100000)
                 mem.empty = True
+                _val.ch_valid = CHAN_INVALID
                 return mem
             else:
+                _val.ch_valid = CHAN_VALID
                 mem.empty = False
 
         mem.freq = int(_mem.rxfreq) * 10
@@ -1543,6 +1571,7 @@ class KGUV9DPlusRadio(chirp_common.CloneModeRadio,
 
         _mem = self._memobj.chan_blk[number - 1]
         _nam = self._memobj.chan_name[number - 1]
+        _val = self._memobj.chan_valid[number - 1]
 
         if mem.empty:
             # consider putting in a check for chan # that is empty but
@@ -1559,6 +1588,7 @@ class KGUV9DPlusRadio(chirp_common.CloneModeRadio,
             _mem.set_raw("\xFF" * (_mem.size() // 8))
             _nam.name = str2name("", 8, '\0', '\0')
             _mem.state = MEM_INVALID
+            _val.ch_valid = CHAN_INVALID
             return
 
         _mem.rxfreq = int(mem.freq / 10)
@@ -1598,6 +1628,7 @@ class KGUV9DPlusRadio(chirp_common.CloneModeRadio,
         _mem.bit5 = 0   # clear this bit to ensure accurate CPS power level
         _nam.name = str2name(mem.name, 8, '\0', '\0')
         _mem.state = MEM_VALID
+        _val.ch_valid = CHAN_VALID
 
 # Build the UI configuration tabs
 # the channel memory tab is built by the core.
@@ -2154,7 +2185,7 @@ class KGUV9DPlusRadio(chirp_common.CloneModeRadio,
             RadioSetting(prefix + ".step",
                          "Frequency Step (Menu 3)",
                          RadioSettingValueList(
-                             STEP_LIST, STEP_LIST[c.step])))
+                             self._step_list, self._step_list[c.step])))
         af.append(
             RadioSetting(prefix + ".scan_mode",
                          "Scan Mode (Menu 20)",
@@ -2194,7 +2225,8 @@ class KGUV9DPlusRadio(chirp_common.CloneModeRadio,
             pfkey1 = PF1KEY_LIST
             pfkey2 = PF2KEY_LIST
             pfkey3 = PF3KEY_LIST2
-        elif self.MODEL == "KG-UV9GX":
+        elif (self.MODEL == "KG-UV9GX" or
+              self.MODEL == "KG-UV9G Pro"):
             pfkey1 = PF1KEY_LIST9GX
             pfkey2 = PF2KEY_LIST9GX
             pfkey3 = PF3KEY_LIST9GX
@@ -2445,6 +2477,13 @@ class KGUV9PXRadio(KGUV9DPlusRadio):
     _rev = b"02"  # default rev for the radio I know about...
     _file_ident = b"kg-uv9px"
     NEEDS_COMPAT_SERIAL = False
+    _valid_steps = STEPS
+    _step_list = STEP_LIST
+
+    @classmethod
+    def match_model(cls, filedata, filename):
+        # This model is only ever matched via metadata
+        return False
 
     def process_mmap(self):
         if self._rev != b"02" and self._rev != b"00":
@@ -2600,7 +2639,7 @@ class KGUV9PXRadio(KGUV9DPlusRadio):
             RadioSetting(prefix + ".step",
                          "Frequency Step (Menu 3)",
                          RadioSettingValueList(
-                             STEP_LIST, STEP_LIST[c.step])))
+                             self._step_list, self._step_list[c.step])))
         af.append(
             RadioSetting(prefix + ".scan_mode",
                          "Scan Mode (Menu 20)",
@@ -2882,3 +2921,48 @@ class KGUV9GXRadio(KGUV9PXRadio):
     _model = b"KG-UV9D"
     _rev = b"02"  # default rev for the radio I know about...
     NEEDS_COMPAT_SERIAL = False
+    _valid_steps = STEPS
+    _step_list = STEP_LIST
+
+    @classmethod
+    def match_model(cls, filedata, filename):
+        # This model is only ever matched via metadata
+        return False
+
+
+@directory.register
+class KGUV9KRadio(KGUV9DPlusRadio):
+
+    """Wouxun KG-UV9K"""
+    VENDOR = "Wouxun"
+    MODEL = "KG-UV9K"
+    _model = b"KG-UV9D"
+    _file_ident = b"kg-uv9k"
+    _rev = b"02"  # default rev for the radio I know about...
+    NEEDS_COMPAT_SERIAL = False
+    _step_list = STEP_LIST_9K
+    _valid_steps = STEPS_9K
+
+    @classmethod
+    def match_model(cls, filedata, filename):
+        # This model is only ever matched via metadata
+        return False
+
+
+@directory.register
+class KGUV9GProRadio(KGUV9DPlusRadio):
+
+    """Wouxun KG-UV9G Pro"""
+    VENDOR = "Wouxun"
+    MODEL = "KG-UV9G Pro"
+    _model = b"KG-UV9D"
+    _file_ident = b"kg-uv9gpro"
+    _rev = b"02"  # default rev for the radio I know about...
+    NEEDS_COMPAT_SERIAL = False
+    _step_list = STEP_LIST
+    _valid_steps = STEPS
+
+    @classmethod
+    def match_model(cls, filedata, filename):
+        # This model is only ever matched via metadata
+        return False

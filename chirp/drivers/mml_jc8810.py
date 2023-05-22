@@ -73,8 +73,8 @@ struct {
      abr:4;           //      Auto BackLight
   u8 unused_9004:7,   // 9004
      tdr:1;           //      TDR
-  u8 unused:4,        // 9005
-     tot:4;           //      Time-out Timer
+  u8 unused:5,        // 9005
+     tot:3;           //      Time-out Timer
   u8 unused_9006:7,   // 9006
      beep:1;          //      Beep
   u8 unused_9007:7,   // 9007
@@ -128,7 +128,8 @@ struct {
      voxd:4;          //      VOX Delay
   u8 unused_9021:4,   // 9021
      menuquit:4;      //      Menu Auto Quit
-  u8 unknown_9022;    // 9022
+  u8 unused_9022:7,   // 9022
+     tailcode:1;      //      Tail Code (RT-470L)
   u8 unknown_9023;    // 9023
   u8 unknown_9024;    // 9024
   u8 unknown_9025;    // 9025
@@ -141,9 +142,10 @@ struct {
   u8 skey2_sp;        // 902B Skey2 Short
   u8 skey2_lp;        // 902C Skey2 Long
   u8 skey3_sp;        // 902D Skey3 Short
-  u8 unknown_902e;    // 902E
+  u8 topkey_sp;       // 902E Top Key (RT-470L)
   u8 unused_902f:7,   // 902F
      rxendtail:1;     //      Tone Rx End
+  u8 skey3_lp;        // 9030 Skey3 Long (RT-470L)
 } settings;
 
 #seekto 0xA020;
@@ -185,7 +187,7 @@ TXPOWER_HIGH = 0x00
 TXPOWER_LOW = 0x01
 TXPOWER_MID = 0x02
 
-ABR_LIST = ["Off", "5 seconds", "10 seconds", "15 seconds", "20 seconds",
+ABR_LIST = ["On", "5 seconds", "10 seconds", "15 seconds", "20 seconds",
             "30 seconds", "1 minute", "2 minutes", "3 minutes"]
 ALMODE_LIST = ["Site", "Tone", "Code"]
 AUTOLK_LIST = ABR_LIST[:4]
@@ -194,7 +196,7 @@ DTMFST_LIST = ["Off", "KeyBoard Side Tone", "ANI Side Tone", "KB ST + ANI ST"]
 DUALTX_LIST = ["Off", "A", "B"]
 ENCRYPT_LIST = ["Off", "DCP1", "DCP2", "DCP3"]
 LANGUAGE_LIST = ["English", "Chinese"]
-MDF_LIST = ["Channel + Name", "Channel + Frequency"]
+MDF_LIST = ["Name", "Frequency"]
 MENUQUIT_LIST = ["%s seconds" % x for x in range(5, 55, 5)] + ["60 seconds"]
 OFF1TO9_LIST = ["Off"] + ["%s" % x for x in range(1, 10)]
 PONMSG_LIST = ["Logo", "Voltage"]
@@ -202,24 +204,40 @@ PTTID_LIST = ["Off", "BOT", "EOT", "Both"]
 PTTIDCODE_LIST = ["%s" % x for x in range(1, 16)]
 PTTLT_LIST = ["None", "100 seconds"] + \
              ["%s seconds" % x for x in range(200, 1200, 200)]
-QTSAVE_LIST = ["All", "TX", "RX"]
+QTSAVE_LIST = ["All", "RX", "TX"]
 RPSTE_LIST = ["Off"] + ["%s ms" % x for x in range(100, 1100, 100)]
 SAVE_LIST = ["Off", "Normal", "Super", "Deep"]
 SCREV_LIST = ["Time (TO)", "Carrier (CO)", "Search (SE)"]
 TAILCODE_LIST = ["55 Hz", "62.5 Hz"]
 TONERXEND_LIST = ["Off", "MDC-1200"]
 TONE_LIST = ["1000 Hz", "1450 Hz", "1750 Hz", "2100 Hz"]
-TOT_LIST = ["Off"] + ["%s seconds" % x for x in range(30, 270, 30)]
-VOX_LIST = ["Off"] + ["%s" % x for x in range(1, 10)]
+TOT_LIST = ["Off", "30 seconds", "60 seconds", "120 seconds", "240 seconds",
+            "480 seconds"]
 VOXD_LIST = ["%s seconds" % str(x / 10) for x in range(5, 21)]
 WORKMODE_LIST = ["VFO Mode", "Channel Mode"]
 
-SKEY_CHOICES = ["FM Radio", "Flashlight", "TX Power Level",
-                "NOAA Weather", "Scan", "Search"]
-SKEY_VALUES = [0x07, 0x08, 0x0A, 0x0C, 0x1C, 0x1D]
+ALL_SKEY_CHOICES = ["OFF",
+                    "FM Radio",
+                    "TX Power Level",
+                    "Scan",
+                    "Search",
+                    "Flashlight",
+                    "NOAA Weather",
+                    "Monitor",
+                    "PTT B",
+                    "SOS"]
 
-SKEY2SP_CHOICES = ["PTT B"] + SKEY_CHOICES
-SKEY2SP_VALUES = [0x01] + SKEY_VALUES
+ALL_SKEY_VALUES = [0xFF,
+                   0x07,
+                   0x0A,
+                   0x1C,
+                   0x1D,
+                   0x08,
+                   0x0C,
+                   0x05,
+                   0x01,
+                   0x03]
+
 
 SETTING_LISTS = {
     "abr": ABR_LIST,
@@ -405,9 +423,16 @@ class JC8810base(chirp_common.CloneModeRadio):
                     chirp_common.PowerLevel("M", watts=8.00),
                     chirp_common.PowerLevel("L", watts=4.00)]
 
+    VALID_BANDS = [(108000000, 136000000),
+                   (136000000, 180000000),
+                   (200000000, 260000000),
+                   (330000000, 400000000),
+                   (400000000, 520000000)]
+
     _magic = b"PROGRAMJC81U"
     _fingerprint = [b"\x00\x00\x00\x26\x00\x20\xD8\x04",
-                    b"\x00\x00\x00\x42\x00\x20\xF0\x04"]
+                    b"\x00\x00\x00\x42\x00\x20\xF0\x04",
+                    b"\x00\x00\x00\x4A\x00\x20\xF8\x04"]
 
     _ranges = [
                (0x0000, 0x2000),
@@ -442,11 +467,7 @@ class JC8810base(chirp_common.CloneModeRadio):
         rf.valid_dtcs_codes = DTCS
         rf.memory_bounds = (1, 256)
         rf.valid_tuning_steps = [2.5, 5., 6.25, 10., 12.5, 20., 25., 50.]
-        rf.valid_bands = [(108000000, 136000000),
-                          (136000000, 180000000),
-                          (200000000, 260000000),
-                          (330000000, 400000000),
-                          (400000000, 520000000)]
+        rf.valid_bands = self.VALID_BANDS
         return rf
 
     def process_mmap(self):
@@ -786,49 +807,152 @@ class JC8810base(chirp_common.CloneModeRadio):
         rset = RadioSetting("ani", "ANI", rs)
         basic.append(rset)
 
-        def apply_skey2sp_listvalue(setting, obj):
+        # Menu 20: PF2
+        def apply_skey2s_listvalue(setting, obj):
             LOG.debug("Setting value: " + str(setting.value) + " from list")
             val = str(setting.value)
-            index = SKEY2SP_CHOICES.index(val)
-            val = SKEY2SP_VALUES[index]
+            index = SKEY2S_CHOICES.index(val)
+            val = SKEY2S_VALUES[index]
             obj.set_value(val)
 
-        # Menu 20: PF2
-        if _settings.skey2_sp in SKEY2SP_VALUES:
-            idx = SKEY2SP_VALUES.index(_settings.skey2_sp)
+        if self.MODEL in ["RT-470"]:
+            unwanted = [0, 7, 9]
+        elif self.MODEL in ["RT-470L"]:
+            unwanted = [9]
         else:
-            idx = SKEY2SP_VALUES.index(0x07)  # default FM
-        rs = RadioSettingValueList(SKEY2SP_CHOICES, SKEY2SP_CHOICES[idx])
+            unwanted = []
+        SKEY2S_CHOICES = ALL_SKEY_CHOICES.copy()
+        SKEY2S_VALUES = ALL_SKEY_VALUES.copy()
+        for ele in sorted(unwanted, reverse=True):
+            del SKEY2S_CHOICES[ele]
+            del SKEY2S_VALUES[ele]
+
+        if _settings.skey2_sp in SKEY2S_VALUES:
+            idx = SKEY2S_VALUES.index(_settings.skey2_sp)
+        else:
+            idx = SKEY2S_VALUES.index(0x07)  # default FM
+        rs = RadioSettingValueList(SKEY2S_CHOICES, SKEY2S_CHOICES[idx])
         rset = RadioSetting("skey2_sp", "PF2 Key (Short Press)", rs)
-        rset.set_apply_callback(apply_skey2sp_listvalue, _settings.skey2_sp)
+        rset.set_apply_callback(apply_skey2s_listvalue, _settings.skey2_sp)
         basic.append(rset)
 
-        def apply_skey_listvalue(setting, obj):
+        # Menu 21: PF2 LONG PRESS
+        def apply_skey2l_listvalue(setting, obj):
             LOG.debug("Setting value: " + str(setting.value) + " from list")
             val = str(setting.value)
-            index = SKEY_CHOICES.index(val)
-            val = SKEY_VALUES[index]
+            index = SKEY2L_CHOICES.index(val)
+            val = SKEY2L_VALUES[index]
             obj.set_value(val)
 
-        # Menu 21: PF2 LONG PRESS
-        if _settings.skey2_lp in SKEY_VALUES:
-            idx = SKEY_VALUES.index(_settings.skey2_lp)
+        if self.MODEL in ["RT-470"]:
+            unwanted = [0, 7, 8, 9]
+        elif self.MODEL in ["RT-470L"]:
+            unwanted = [8, 9]
         else:
-            idx = SKEY_VALUES.index(0x1D)  # default Search
-        rs = RadioSettingValueList(SKEY_CHOICES, SKEY_CHOICES[idx])
+            unwanted = []
+        SKEY2L_CHOICES = ALL_SKEY_CHOICES.copy()
+        SKEY2L_VALUES = ALL_SKEY_VALUES.copy()
+        for ele in sorted(unwanted, reverse=True):
+            del SKEY2L_CHOICES[ele]
+            del SKEY2L_VALUES[ele]
+
+        if _settings.skey2_lp in SKEY2L_VALUES:
+            idx = SKEY2L_VALUES.index(_settings.skey2_lp)
+        else:
+            idx = SKEY2L_VALUES.index(0x1D)  # default Search
+        rs = RadioSettingValueList(SKEY2L_CHOICES, SKEY2L_CHOICES[idx])
         rset = RadioSetting("skey2_lp", "PF2 Key (Long Press)", rs)
-        rset.set_apply_callback(apply_skey_listvalue, _settings.skey2_lp)
+        rset.set_apply_callback(apply_skey2l_listvalue, _settings.skey2_lp)
         basic.append(rset)
 
         # Menu 22: PF3
-        if _settings.skey3_sp in SKEY_VALUES:
-            idx = SKEY_VALUES.index(_settings.skey3_sp)
+        def apply_skey3s_listvalue(setting, obj):
+            LOG.debug("Setting value: " + str(setting.value) + " from list")
+            val = str(setting.value)
+            index = SKEY3S_CHOICES.index(val)
+            val = SKEY2S_VALUES[index]
+            obj.set_value(val)
+
+        if self.MODEL in ["RT-470"]:
+            unwanted = [0, 7, 8, 9]
+        elif self.MODEL in ["RT-470L"]:
+            unwanted = [8, 9]
         else:
-            idx = SKEY_VALUES.index(0x08)  # default Flashlight
-        rs = RadioSettingValueList(SKEY_CHOICES, SKEY_CHOICES[idx])
+            unwanted = []
+        SKEY3S_CHOICES = ALL_SKEY_CHOICES.copy()
+        SKEY3S_VALUES = ALL_SKEY_VALUES.copy()
+        for ele in sorted(unwanted, reverse=True):
+            del SKEY3S_CHOICES[ele]
+            del SKEY3S_VALUES[ele]
+
+        if _settings.skey3_sp in SKEY3S_VALUES:
+            idx = SKEY3S_VALUES.index(_settings.skey3_sp)
+        else:
+            idx = SKEY3S_VALUES.index(0x0C)  # default NOAA
+        rs = RadioSettingValueList(SKEY3S_CHOICES, SKEY3S_CHOICES[idx])
         rset = RadioSetting("skey3_sp", "PF3 Key (Short Press)", rs)
-        rset.set_apply_callback(apply_skey_listvalue, _settings.skey3_sp)
+        rset.set_apply_callback(apply_skey3s_listvalue, _settings.skey3_sp)
         basic.append(rset)
+
+        if self.MODEL in ["RT-470L"]:
+            # Menu 24: PF3 LONG PRESS (RT-470L)
+            def apply_skey3l_listvalue(setting, obj):
+                LOG.debug("Setting value: " + str(setting.value) +
+                          " from list")
+                val = str(setting.value)
+                index = SKEY3L_CHOICES.index(val)
+                val = SKEY2L_VALUES[index]
+                obj.set_value(val)
+
+            if self.MODEL in ["RT-470L"]:
+                unwanted = [8, 9]
+            else:
+                unwanted = []
+            SKEY3L_CHOICES = ALL_SKEY_CHOICES.copy()
+            SKEY3L_VALUES = ALL_SKEY_VALUES.copy()
+            for ele in sorted(unwanted, reverse=True):
+                del SKEY3L_CHOICES[ele]
+                del SKEY3L_VALUES[ele]
+
+            if _settings.skey3_lp in SKEY3L_VALUES:
+                idx = SKEY3L_VALUES.index(_settings.skey3_lp)
+            else:
+                idx = SKEY3L_VALUES.index(0x1D)  # default SEARCH
+            rs = RadioSettingValueList(SKEY3L_CHOICES, SKEY3L_CHOICES[idx])
+            rset = RadioSetting("skey3_lp", "PF3 Key (Long Press)", rs)
+            rset.set_apply_callback(apply_skey3l_listvalue,
+                                    _settings.skey3_lp)
+            basic.append(rset)
+
+        if self.MODEL in ["RT-470L"]:
+            # Menu 25: TOP KEY (RT-470L)
+            def apply_skeytop_listvalue(setting, obj):
+                LOG.debug("Setting value: " + str(setting.value) +
+                          " from list")
+                val = str(setting.value)
+                index = SKEYTOP_CHOICES.index(val)
+                val = SKEYTOP_VALUES[index]
+                obj.set_value(val)
+
+            if self.MODEL in ["RT-470L"]:
+                unwanted = [8, 9]
+            else:
+                unwanted = []
+            SKEYTOP_CHOICES = ALL_SKEY_CHOICES.copy()
+            SKEYTOP_VALUES = ALL_SKEY_VALUES.copy()
+            for ele in sorted(unwanted, reverse=True):
+                del SKEYTOP_CHOICES[ele]
+                del SKEYTOP_VALUES[ele]
+
+            if _settings.topkey_sp in SKEYTOP_VALUES:
+                idx = SKEYTOP_VALUES.index(_settings.topkey_sp)
+            else:
+                idx = SKEYTOP_VALUES.index(0x1D)  # default SEARCH
+            rs = RadioSettingValueList(SKEYTOP_CHOICES, SKEYTOP_CHOICES[idx])
+            rset = RadioSetting("topkey_sp", "Top Key (Short Press)", rs)
+            rset.set_apply_callback(apply_skeytop_listvalue,
+                                    _settings.topkey_sp)
+            basic.append(rset)
 
         # Mneu 36: TONE
         rs = RadioSettingValueList(TONE_LIST, TONE_LIST[_settings.tone])
@@ -839,6 +963,12 @@ class JC8810base(chirp_common.CloneModeRadio):
         rs = RadioSettingValueList(PONMSG_LIST, PONMSG_LIST[_settings.ponmsg])
         rset = RadioSetting("ponmsg", "Power On Message", rs)
         basic.append(rset)
+
+        if self.MODEL == "RT-470L":
+            rs = RadioSettingValueList(TAILCODE_LIST,
+                                       TAILCODE_LIST[_settings.tailcode])
+            rset = RadioSetting("tailcode", "Tail Code", rs)
+            basic.append(rset)
 
         # Menu 46: STE
         rs = RadioSettingValueBoolean(_settings.ste)
@@ -1048,3 +1178,23 @@ class RT470Radio(JC8810base):
     """Radtel RT-470"""
     VENDOR = "Radtel"
     MODEL = "RT-470"
+
+
+@directory.register
+class RT470LRadio(JC8810base):
+    """Radtel RT-470L"""
+    VENDOR = "Radtel"
+    MODEL = "RT-470L"
+
+    _fingerprint = [b"\x00\x00\x00\xfe\x00\x20\xAC\x04",
+                    b"\x00\x00\x00\x20\x00\x20\xCC\x04"]
+
+    POWER_LEVELS = [chirp_common.PowerLevel("H", watts=5.00),
+                    chirp_common.PowerLevel("M", watts=4.00),
+                    chirp_common.PowerLevel("L", watts=2.00)]
+
+    VALID_BANDS = [(108000000, 136000000),
+                   (136000000, 179000000),
+                   (220000000, 260000000),
+                   (330000000, 400000000),
+                   (400000000, 520000000)]
