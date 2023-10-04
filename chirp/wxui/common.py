@@ -579,6 +579,11 @@ class ChirpSettingGrid(wx.Panel):
                                           setting.get_name(),
                                           wx.Colour(*value.get_value()))
 
+    def _get_editor_rgb(self, setting, value):
+        return wx.propgrid.ColourProperty(setting.get_shortname(),
+                                          setting.get_name(),
+                                          wx.Colour(*value.get_value()))
+
     def get_setting_values(self):
         """Return a dict of {name: (RadioSetting, newvalue)}"""
         values = {}
