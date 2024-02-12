@@ -37,11 +37,11 @@ struct {           // Channel memory structure
   ul16 rx_tone;    // RX tone
   ul16 tx_tone;    // TX tone
   u8 unknown_1:4,  // n-a
-     busy_loc:2,   // NO-00, Crrier wave-01, SM-10
+     busy_loc:2,   // NO-00, Carrier wave-01, SM-10
      n_a:2;        // n-a
   u8 unknown_2:1,  // n-a
      scan_add:1,   // Scan add
-     n_a:1,        // n-a
+     n_a2:1,       // n-a
      w_n:1,        // Narrow-0 Wide-1
      lout:1,       // LOCKOUT OFF-0 ON-1
      n_a_:1,       // n-a
@@ -67,7 +67,7 @@ struct {           // Settings memory structure ( A-Frequency mode )
   n_a:2;
   u8 unknown_1_6:3,
   freq_a_w_n:1,
-  n_a:1,
+  n_a2:1,
   na:1,
   freq_a_power:2;
   u8 unknown_1_7;

@@ -129,13 +129,13 @@ struct {
             // calls it tdrch. Since this is a minor difference, it will
             // be referred to by the wrong name for the UV-82HP.
   u8 displayab:1,
-     unknown1:2,
+     unknown7:2,
      fmradio:1,
      alarm:1,
-     unknown2:1,
+     unknown8:1,
      reset:1,
      menu:1;
-  u8 unknown1:6,
+  u8 unknown9:6,
      singleptt:1,
      vfomrlock:1;
   u8 workmode;
@@ -656,19 +656,19 @@ def _do_upload(radio):
         if aux_i1 != aux_r1:
             # Area 1 does not match
             # The safest thing to do is to skip uploading Aux mem area.
-            LOG.info("Aux memory mis-match")
+            LOG.info("Aux memory mismatch")
             LOG.info("Aux area 1 from image is %s" % repr(aux_i1))
             LOG.info("Aux area 1 from radio is %s" % repr(aux_r1))
         elif aux_i2 != aux_r2:
             # Area 2 does not match
             # The safest thing to do is to skip uploading Aux mem area.
-            LOG.info("Aux memory mis-match")
+            LOG.info("Aux memory mismatch")
             LOG.info("Aux area 2 from image is %s" % repr(aux_i2))
             LOG.info("Aux area 2 from radio is %s" % repr(aux_r2))
         elif aux_i3 != aux_r3:
             # Area 3 does not match
             # The safest thing to do is to skip uploading Aux mem area.
-            LOG.info("Aux memory mis-match")
+            LOG.info("Aux memory mismatch")
             LOG.info("Aux area 3 from image is %s" % repr(aux_i3))
             LOG.info("Aux area 3 from radio is %s" % repr(aux_r3))
         else:
