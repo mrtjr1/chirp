@@ -458,7 +458,6 @@ class BFT1(chirp_common.CloneModeRadio, chirp_common.ExperimentalRadio):
     """Baofeng BT-F1 radio & possibly alike radios"""
     VENDOR = "Baofeng"
     MODEL = "BF-T1"
-    NEEDS_COMPAT_SERIAL = False
     _vhf_range = (130000000, 174000000)
     _uhf_range = (400000000, 520000000)
     _upper = 20
@@ -741,7 +740,7 @@ class BFT1(chirp_common.CloneModeRadio, chirp_common.ExperimentalRadio):
         # ## Basic Settings
         rs = RadioSetting("tx_pwr", "TX Power",
                           RadioSettingValueList(
-                            POWER_LIST, POWER_LIST[_settings.tx_pwr]))
+                            POWER_LIST, current_index=_settings.tx_pwr))
         basic.append(rs)
 
         rs = RadioSetting("channel", "Active Channel",
@@ -765,29 +764,28 @@ class BFT1(chirp_common.CloneModeRadio, chirp_common.ExperimentalRadio):
         basic.append(rs)
 
         rs = RadioSetting("scantype", "Scan Type",
-                          RadioSettingValueList(SCAN_TYPE_LIST, SCAN_TYPE_LIST[
-                              _settings.scantype]))
+                          RadioSettingValueList(SCAN_TYPE_LIST, current_index=_settings.scantype))
         basic.append(rs)
 
         rs = RadioSetting("timeout", "Time Out Timer (seconds)",
                           RadioSettingValueList(
-                            TOT_LIST, TOT_LIST[_settings.timeout]))
+                            TOT_LIST, current_index=_settings.timeout))
         basic.append(rs)
 
         rs = RadioSetting("voice", "Voice Prompt",
                           RadioSettingValueList(
-                            LANGUAGE_LIST, LANGUAGE_LIST[_settings.voice]))
+                            LANGUAGE_LIST, current_index=_settings.voice))
         basic.append(rs)
 
         rs = RadioSetting("alarm", "Alarm Time",
                           RadioSettingValueList(
-                            TIMER_LIST, TIMER_LIST[_settings.alarm]))
+                            TIMER_LIST, current_index=_settings.alarm))
         basic.append(rs)
 
         rs = RadioSetting("backlight", "Backlight",
                           RadioSettingValueList(
                             BACKLIGHT_LIST,
-                            BACKLIGHT_LIST[_settings.backlight]))
+                            current_index=_settings.backlight))
         basic.append(rs)
 
         rs = RadioSetting("blo", "Busy Lockout",
@@ -817,7 +815,7 @@ class BFT1(chirp_common.CloneModeRadio, chirp_common.ExperimentalRadio):
 
         rs = RadioSetting("fmrange", "FM Range",
                           RadioSettingValueList(
-                            FM_RANGE_LIST, FM_RANGE_LIST[_settings.fmrange]))
+                            FM_RANGE_LIST, current_index=_settings.fmrange))
         fm.append(rs)
 
         # callbacks for the FM VFO
@@ -877,7 +875,7 @@ class BFT1(chirp_common.CloneModeRadio, chirp_common.ExperimentalRadio):
 
         rs = RadioSetting("relaym", "Relay Mode",
                           RadioSettingValueList(RELAY_MODE_LIST,
-                                                RELAY_MODE_LIST[_settings.relaym]))
+                                                current_index=_settings.relaym))
         adv.append(rs)
 
         return group

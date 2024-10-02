@@ -331,7 +331,6 @@ class RT22Radio(chirp_common.CloneModeRadio):
     VENDOR = "Retevis"
     MODEL = "RT22"
     BAUD_RATE = 9600
-    NEEDS_COMPAT_SERIAL = False
 
     _ranges = [
                (0x0000, 0x0180, 0x10),
@@ -549,6 +548,10 @@ class RT22Radio(chirp_common.CloneModeRadio):
             _mem.set_raw("\xFF" * (_mem.size() // 8))
             return
 
+        # Initialize the memory to a known-good state
+        _mem.fill_raw(b'\x00')
+        _mem.unknown5[0] = 0x80
+
         _mem.rxfreq = mem.freq / 10
 
         if mem.duplex == "off":
@@ -590,17 +593,17 @@ class RT22Radio(chirp_common.CloneModeRadio):
         rs = RadioSetting("tot", "Time-out timer",
                           RadioSettingValueList(
                               TIMEOUTTIMER_LIST,
-                              TIMEOUTTIMER_LIST[_settings.tot]))
+                              current_index=_settings.tot))
         basic.append(rs)
 
         rs = RadioSetting("voice", "Voice Prompts",
                           RadioSettingValueList(
-                              VOICE_LIST, VOICE_LIST[_settings.voice]))
+                              VOICE_LIST, current_index=_settings.voice))
         basic.append(rs)
 
         rs = RadioSetting("pf2key", "PF2 Key",
                           RadioSettingValueList(
-                              PF2KEY_LIST, PF2KEY_LIST[_settings.pf2key]))
+                              PF2KEY_LIST, current_index=_settings.pf2key))
         basic.append(rs)
 
         rs = RadioSetting("vox", "Vox",
@@ -609,13 +612,13 @@ class RT22Radio(chirp_common.CloneModeRadio):
 
         rs = RadioSetting("voxgain", "VOX Level",
                           RadioSettingValueList(
-                              VOX_LIST, VOX_LIST[_settings.voxgain]))
+                              VOX_LIST, current_index=_settings.voxgain))
         basic.append(rs)
 
         rs = RadioSetting("voxdelay", "VOX Delay Time (Old | New)",
                           RadioSettingValueList(
                               VOXDELAY_LIST,
-                              VOXDELAY_LIST[_settings.voxdelay]))
+                              current_index=_settings.voxdelay))
         basic.append(rs)
 
         rs = RadioSetting("save", "Battery Save",
@@ -728,6 +731,7 @@ class RT22FRS(RT22Radio):
 class RT622(RT22Radio):
     VENDOR = "Retevis"
     MODEL = "RT622"
+    _fileid = RT22Radio._fileid + [b'\xFF\xFF\xF8\xFF']
 
 
 @directory.register
@@ -749,4 +753,6 @@ class BFT20(RT22Radio):
     VENDOR = "Baofeng"
     MODEL = "BF-T20"
 
-    _fileid = [b"P330h33", ]
+    _fileid = [b"P330h33",
+               b"P32073" + b"\xF8\xFF",
+               ]

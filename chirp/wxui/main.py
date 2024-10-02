@@ -16,6 +16,7 @@
 import datetime
 import functools
 import hashlib
+from importlib import resources
 import logging
 import os
 import pickle
@@ -25,10 +26,6 @@ import time
 import typing
 import webbrowser
 
-if sys.version_info < (3, 10):
-    import importlib_resources
-else:
-    import importlib.resources as importlib_resources
 
 import wx
 import wx.aui
@@ -43,6 +40,7 @@ from chirp import platform as chirp_platform
 from chirp.sources import base
 from chirp.wxui import config
 from chirp.wxui import bankedit
+from chirp.wxui import bugreport
 from chirp.wxui import common
 from chirp.wxui import clone
 from chirp.wxui import developer
@@ -369,15 +367,25 @@ class ChirpLiveEditorSet(ChirpEditorSet):
 
 class ChirpWelcomePanel(wx.Panel):
     """Fake "editorset" that just displays the welcome image."""
+
     def __init__(self, *a, **k):
         super(ChirpWelcomePanel, self).__init__(*a, **k)
 
         vbox = wx.BoxSizer(wx.VERTICAL)
         self.SetSizer(vbox)
-        with importlib_resources.as_file(
-            importlib_resources.files('chirp.share')
-            .joinpath('welcome_screen.png')
-        ) as welcome:
+
+        # Search for welcome_screen_en_US, welcome_screen_en, welcome_screen
+        locale = wx.App.Get()._lc.GetCanonicalName()
+        locale_base_path = resources.files('chirp.share')
+        welcome_file = locale_base_path.joinpath(
+            'welcome_screen_%s.png' % locale)
+        if not os.path.exists(welcome_file):
+            welcome_file = locale_base_path.joinpath(
+                'welcome_screen_%s.png' % locale[0:2])
+        if not os.path.exists(welcome_file):
+            welcome_file = locale_base_path.joinpath('welcome_screen.png')
+
+        with resources.as_file(welcome_file) as welcome:
             bmp = wx.Bitmap(str(welcome))
         width, height = self.GetSize()
         img = wx.StaticBitmap(self, wx.ID_ANY, bmp)
@@ -453,9 +461,8 @@ class ChirpMain(wx.Frame):
         self.add_tab_panel = wx.Panel(self, pos=(0, 0), size=(600, 600))
         self.add_tab_panel.Hide()
 
-        with importlib_resources.as_file(
-            importlib_resources.files('chirp.share')
-            .joinpath('plus-icon.png')
+        with resources.as_file(
+            resources.files('chirp.share').joinpath('plus-icon.png')
         ) as icon:
             self.add_tab_bm = wx.Bitmap(str(icon), wx.BITMAP_TYPE_ANY)
 
@@ -525,9 +532,8 @@ class ChirpMain(wx.Frame):
             icon = 'chirp.ico'
         else:
             icon = 'chirp.png'
-        with importlib_resources.as_file(
-            importlib_resources.files('chirp.share')
-            .joinpath(icon)
+        with resources.as_file(
+            resources.files('chirp.share').joinpath(icon)
         ) as path:
             self.SetIcon(wx.Icon(str(path)))
 
@@ -537,11 +543,16 @@ class ChirpMain(wx.Frame):
         if isinstance(eset, ChirpEditorSet):
             return eset
 
+    def enable_bugreport(self):
+        self.bug_report_item.Enable(True)
+
     @common.error_proof(errors.ImageDetectFailed, FileNotFoundError)
     def open_file(self, filename, exists=True, select=True, rclass=None):
+        self.enable_bugreport()
         CSVRadio = directory.get_radio('Generic_CSV')
         label = _('Driver messages')
-        with common.expose_logs(logging.WARNING, 'chirp.drivers', label):
+        with common.expose_logs(logging.WARNING, 'chirp.drivers', label,
+                                parent=self):
             if exists:
                 if not os.path.exists(filename):
                     raise FileNotFoundError(
@@ -588,7 +599,7 @@ class ChirpMain(wx.Frame):
         dist_stock_confs = sorted(
             [
                 (conf.name, hashlib.md5(conf.read_bytes())) for conf
-                in importlib_resources.files('chirp.stock_configs').iterdir()
+                in resources.files('chirp.stock_configs').iterdir()
                 if conf.is_file()
             ]
         )
@@ -808,6 +819,11 @@ class ChirpMain(wx.Frame):
         self.Bind(wx.EVT_MENU, self._menu_restore_tabs, restore_tabs)
         restore_tabs.Check(CONF.get_bool('restore_tabs', 'prefs', False))
 
+        lang_item = wx.MenuItem(view_menu, wx.NewId(),
+                                _('Language') + '...')
+        self.Bind(wx.EVT_MENU, self._menu_language, lang_item)
+        view_menu.Append(lang_item)
+
         radio_menu = wx.Menu()
 
         if sys.platform == 'darwin':
@@ -951,6 +967,15 @@ class ChirpMain(wx.Frame):
                                 _('Load module from issue...'))
         self.Bind(wx.EVT_MENU, self._menu_load_from_issue, lmfi_menu)
         help_menu.Append(lmfi_menu)
+
+        self.bug_report_item = wx.MenuItem(
+            help_menu, wx.NewId(),
+            _('Report or update a bug...'))
+        self.Bind(wx.EVT_MENU,
+                  functools.partial(bugreport.do_bugreport, self),
+                  self.bug_report_item)
+        help_menu.Append(self.bug_report_item)
+        self.bug_report_item.Enable(False)
 
         menu_bar = wx.MenuBar()
         menu_bar.Append(file_menu, wx.GetStockLabel(wx.ID_FILE))
@@ -1233,9 +1258,8 @@ class ChirpMain(wx.Frame):
 
         user_stock_dir = get_stock_configs()
         user_stock_conf = os.path.join(user_stock_dir, fn)
-        with importlib_resources.as_file(
-            importlib_resources.files('chirp.stock_configs')
-            .joinpath(fn)
+        with resources.as_file(
+            resources.files('chirp.stock_configs').joinpath(fn)
         ) as path:
             dist_stock_conf = str(path)
         if os.path.exists(user_stock_conf):
@@ -1333,7 +1357,7 @@ class ChirpMain(wx.Frame):
         r = d.ShowModal()
         if r == wx.ID_YES:
             with common.expose_logs(logging.WARNING, 'chirp.drivers',
-                                    _('Import messages')):
+                                    _('Import messages'), parent=self):
                 radio = directory.get_radio_by_image(filename)
                 self.current_editorset.current_editor.memedit_import_all(radio)
         elif r == wx.ID_NO:
@@ -1445,6 +1469,51 @@ class ChirpMain(wx.Frame):
         menuitem = event.GetEventObject().FindItemById(event.GetId())
         CONF.set_bool('restore_tabs', menuitem.IsChecked(), 'prefs')
 
+    @common.error_proof()
+    def _menu_language(self, event):
+        def fmt_lang(lang):
+            return '%s - %s' % (lang.DescriptionNative,
+                                lang.Description.split(' ')[0])
+
+        trans = wx.Translations.Get()
+        langs = {fmt_lang(wx.Locale.FindLanguageInfo(code)): code
+                 for code in trans.GetAvailableTranslations('CHIRP')}
+        # This is stupid, but wx.GetSingleChoice does not honor the width
+        # parameter. But, we can pad out the automatic sepection to get some
+        # extra padding in the dialog since we don't otherwise index it.
+        choices = ([_('Automatic from system') + ' ' * 30] +
+                   sorted(langs.keys()))
+        try:
+            current = wx.Locale.FindLanguageInfo(
+                CONF.get('force_language', 'prefs'))
+            initial = choices.index(fmt_lang(current))
+        except TypeError:
+            # Unset in the config (i.e. None)
+            initial = 0
+        except IndexError:
+            LOG.debug('Unable to find current language selection; '
+                      'defaulting to auto')
+            initial = 0
+
+        choice = wx.GetSingleChoice(_('Select Language'), _('Language'),
+                                    choices, parent=self,
+                                    initialSelection=initial)
+        if not choice:
+            return
+
+        try:
+            LOG.debug('User chose override language %r (%r)',
+                      choice, langs[choice])
+            CONF.set('force_language', langs[choice], 'prefs')
+        except KeyError:
+            LOG.debug('User chose automatic language')
+            CONF.remove_option('force_language', 'prefs')
+
+        if initial != choices.index(choice):
+            wx.MessageBox(_('CHIRP must be restarted for the new selection '
+                            'to take effect'),
+                          _('Restart Required'))
+
     def _make_backup(self, radio):
         if not isinstance(radio, chirp_common.CloneModeRadio):
             LOG.debug('Not backing up %s' % radio)
@@ -1488,6 +1557,7 @@ class ChirpMain(wx.Frame):
             LOG.exception('Failed to prune: %s' % e)
 
     def _menu_download(self, event):
+        self.enable_bugreport()
         with clone.ChirpDownloadDialog(self) as d:
             d.Centre()
             if d.ShowModal() == wx.ID_OK:
@@ -1514,7 +1584,7 @@ class ChirpMain(wx.Frame):
         elif isinstance(radio, (CSVRadio, base.NetworkResultRadio)):
             msg = _('This is a radio-independent file and cannot be uploaded '
                     'directly to a radio. Open a radio image (or download one '
-                    'from a radio) an then copy/paste items from this tab '
+                    'from a radio) and then copy/paste items from this tab '
                     'into that one in order to upload')
             d = wx.MessageDialog(self, msg, _('Unable to upload this file'),
                                  wx.ICON_INFORMATION)
@@ -1718,6 +1788,15 @@ class ChirpMain(wx.Frame):
     @common.error_proof()
     def _menu_backup_loc(self, event):
         backup_dir = chirp_platform.get_platform().config_file('backups')
+
+        # Backup directory may not exist if no backup has been made
+        try:
+            os.makedirs(backup_dir, exist_ok=True)
+        except Exception as e:
+            LOG.warning('Failed to create backup directory %s: %s' %
+                        (backup_dir, e))
+            return
+
         common.reveal_location(backup_dir)
 
     @common.error_proof()
@@ -1763,6 +1842,7 @@ class ChirpMain(wx.Frame):
                 CONF.set_bool(shortname, shortname == selected, 'bandplan')
 
     def _do_network_query(self, query_cls):
+        self.enable_bugreport()
         d = query_cls(self, title=_('Query %s') % query_cls.NAME)
         r = d.ShowModal()
         if r == wx.ID_OK:
@@ -1805,7 +1885,7 @@ def display_update_notice(version):
 
     CONF.set_int("last_update_check", int(time.time()), "state")
 
-    url = 'https://chirpmyradio.com/projects/chirp/wiki/ChirpNextBuild'
+    url = 'https://chirpmyradio.com'
     msg = _('A new CHIRP version is available. Please visit the '
             'website as soon as possible to download it!')
     d = wx.MessageDialog(None, msg, _('New version available'),

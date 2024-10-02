@@ -453,7 +453,6 @@ class UVK5RadioEgzumer(uvk5.UVK5RadioBase):
     MODEL = "UV-K5"
     VARIANT = "egzumer"
     BAUD_RATE = 38400
-    NEEDS_COMPAT_SERIAL = False
     FIRMWARE_VERSION = ""
     _cal_start = 0x1E00  # calibration memory start address
     _pttid_list = ["Off", "Up code", "Down code", "Up+Down code",
@@ -1386,7 +1385,7 @@ class UVK5RadioEgzumer(uvk5.UVK5RadioBase):
 
         # Battery Type
         tmpbtype = list_def(_mem.Battery_type, BATTYPE_LIST, 0)
-        val = RadioSettingValueList(BATTYPE_LIST, BATTYPE_LIST[tmpbtype])
+        val = RadioSettingValueList(BATTYPE_LIST, current_index=tmpbtype)
         bat_type_setting = RadioSetting("Battery_type",
                                         "Battery Type (BatTyp)", val)
 

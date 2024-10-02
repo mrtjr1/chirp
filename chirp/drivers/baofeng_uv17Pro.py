@@ -31,6 +31,10 @@ LOG = logging.getLogger(__name__)
 # Baofeng UV-17L magic string
 MSTRING_UV17L = b"PROGRAMBFNORMALU"
 MSTRING_UV17PROGPS = b"PROGRAMCOLORPROU"
+# Baofeng GM-5RH magic string
+MSTRING_GM5RH = b"PROGRAMBFGMRS05U"
+# BTECH BF-F8HP Pro magic string
+MSTRING_BFF8HPPRO = b"PROGRAMBF5RTECHU"
 
 DTMF_CHARS = "0123456789 *#ABCD"
 STEPS = [2.5, 5.0, 6.25, 10.0, 12.5, 20.0, 25.0, 50.0]
@@ -46,13 +50,9 @@ LIST_TIMEOUT_ALARM = ["Off"] + ["%s sec" % x for x in range(1, 11)]
 LIST_PILOT_TONE = ["1000 Hz", "1450 Hz", "1750 Hz", "2100 Hz"]
 LIST_VOICE = ["Off", "English", "Chinese"]
 LIST_WORKMODE = ["Frequency", "Channel"]
-LIST_BEEP = ["Off", "Beep", "Voice", "Both"]
 LIST_SCANMODE = ["Time", "Carrier", "Search"]
 LIST_ALARMMODE = ["Local", "Send Tone", "Send Code"]
-LIST_MENU_QUIT_TIME = ["%s sec" % x for x in range(5, 55, 5)] + ["60 sec"]
-LIST_ID_DELAY = ["%s ms" % x for x in range(100, 3100, 100)]
 LIST_QT_SAVEMODE = ["Both", "RX", "TX"]
-LIST_SKEY2_SHORT = ["FM", "Scan", "Search", "Vox"]
 LIST_RPT_TAIL_CLEAR = ["%s ms" % x for x in range(0, 1100, 100)]
 LIST_VOX_DELAY_TIME = ["%s ms" % x for x in range(500, 2100, 100)]
 LIST_VOX_LEVEL = ["Off"] + ["%s" % x for x in range(1, 10, 1)]
@@ -149,7 +149,7 @@ def _download(radio):
             d = bfc._rawrecv(radio, radio.BLOCK_SIZE + 4)
 
             LOG.debug("Response Data= " + util.hexprint(d))
-            d = _crypt(1, d[4:])
+            d = _crypt(radio._encrsym, d[4:])
 
             # Aggregate the data
             data += d
@@ -181,7 +181,7 @@ def _upload(radio):
         for addr in range(MEM_START, MEM_START + MEM_SIZE,
                           radio.BLOCK_SIZE):
             data = radio_mem[data_addr:data_addr + radio.BLOCK_SIZE]
-            data = _crypt(1, data)
+            data = _crypt(radio._encrsym, data)
             data_addr += radio.BLOCK_SIZE
 
             frame = radio._make_frame(b"W", addr, radio.BLOCK_SIZE, data)
@@ -209,7 +209,6 @@ class UV17Pro(bfc.BaofengCommonHT):
     """Baofeng UV-17Pro"""
     VENDOR = "Baofeng"
     MODEL = "UV-17Pro"
-    NEEDS_COMPAT_SERIAL = False
 
     MEM_STARTS = [0x0000, 0x9000, 0xA000, 0xD000]
     MEM_SIZES = [0x8040, 0x0040, 0x02C0, 0x0040]
@@ -247,6 +246,9 @@ class UV17Pro(bfc.BaofengCommonHT):
     _has_send_id_delay = False
     _has_skey2_short = False
     _scode_offset = 0
+    _encrsym = 1
+    _has_voice = True
+    _mem_positions = (0x8080, 0x80A0, 0x8280)
 
     MODES = ["NFM", "FM"]
     VALID_CHARS = chirp_common.CHARSET_ALPHANUMERIC + \
@@ -264,7 +266,7 @@ class UV17Pro(bfc.BaofengCommonHT):
         RXTX_CODES = (RXTX_CODES + ('D' + str(code) + 'I', ))
     POWER_LEVELS = [chirp_common.PowerLevel("High", watts=5.00),
                     chirp_common.PowerLevel("Low",  watts=1.00)]
-    _airband = (108000000, 136000000)
+    _airband = (108000000, 135999999)
     _vhf_range = (136000000, 174000000)
     _vhf2_range = (200000000, 260000000)
     _uhf_range = (400000000, 520000000)
@@ -281,6 +283,12 @@ class UV17Pro(bfc.BaofengCommonHT):
     LIST_BACKLIGHT_TIMER = ["Always On"] + ["%s sec"
                                             % x for x in range(5, 25, 5)]
     LIST_MODE = ["Name", "Frequency", "Channel Number"]
+    LIST_BEEP = ["Off", "Beep", "Voice", "Both"]
+    LIST_MENU_QUIT_TIME = ["%s sec" % x for x in range(5, 55, 5)] + ["60 sec"]
+    LIST_ID_DELAY = ["%s ms" % x for x in range(100, 3100, 100)]
+    LIST_SEPARATE_CODE = ["A", "B", "C", "D", "*", "#"]
+    LIST_GROUP_CALL_CODE = ["Off"] + LIST_SEPARATE_CODE
+    LIST_SKEY2_SHORT = ["FM", "Scan", "Search", "Vox"]
 
     CHANNELS = 1000
 
@@ -360,7 +368,7 @@ class UV17Pro(bfc.BaofengCommonHT):
       u8 rpttailclear;
       u8 rpttaildet;
       u8 roger;
-      u8 unknown2;
+      u8 a_or_b_selected; // a=0, b=1
       u8 fmenable;
       u8 chbworkmode:4,
          chaworkmode:4;
@@ -370,7 +378,9 @@ class UV17Pro(bfc.BaofengCommonHT):
       u8 unknown4[2];
       u8 voxdlytime;
       u8 menuquittime;
-      u8 unknown5[6];
+      u8 unknown5[2];
+      u8 dispani;
+      u8 unknown11[3];
       u8 totalarm;
       u8 unknown6[2];
       u8 ctsdcsscantype;
@@ -382,13 +392,18 @@ class UV17Pro(bfc.BaofengCommonHT):
       u8 key2short;
       u8 unknown8[2];
       u8 rstmenu;
-      u8 unknown9;
+      u8 singlewatch;
       u8 hangup;
       u8 voxsw;
       u8 gpstimezone;
+      u8 unknown10;
+      u8 inputdtmf;
+      u8 gpsunits;
+      u8 pontime;
+      char stationid[8];
     } settings;
 
-    #seekto 0x8080;
+    #seekto 0x%04X;
     struct {
       u8 code[5];
       u8 unknown[1];
@@ -396,16 +411,27 @@ class UV17Pro(bfc.BaofengCommonHT):
          aniid:2;
       u8 dtmfon;
       u8 dtmfoff;
+      u8 separatecode;
+      u8 groupcallcode;
     } ani;
 
-    #seekto 0x80A0;
+    #seekto 0x%04X;
     struct {
       u8 code[5];
-      u8 name[10];
+      char name[10];
       u8 unused;
     } pttid[20];
 
-    #seekto 0x8280;
+    struct {
+      u8 unknown32[32];
+      u8 code[16];
+    } upcode;
+
+    struct {
+      u8 code[16];
+    } downcode;
+
+    #seekto 0x%04X;
     struct {
       char name[16];
     } bank_name[10];
@@ -452,7 +478,8 @@ class UV17Pro(bfc.BaofengCommonHT):
     def process_mmap(self):
         """Process the mem map into the mem object"""
         # make lines shorter for style check.
-        self._memobj = bitwise.parse(self.MEM_FORMAT, self._mmap)
+        fmt = self.MEM_FORMAT % self._mem_positions
+        self._memobj = bitwise.parse(fmt, self._mmap)
 
     # DTMF settings
     def apply_code(self, setting, obj, length):
@@ -464,8 +491,22 @@ class UV17Pro(bfc.BaofengCommonHT):
                 code.append(0xFF)
         obj.code = code
 
+    def _filterCodeName(self, name):
+        fname = b""
+        for char in name:
+            if ord(str(char)) in [0, 255]:
+                break
+            fname += int(char).to_bytes(1, 'big')
+        return fname.decode('gb2312').strip()
+
+    def apply_codename(self, setting, obj):
+        codename = (str(setting.value).encode('gb2312')[:10].ljust(10,
+                    b"\xFF"))
+        obj.name = codename
+
     def get_settings_common_dtmf(self, dtmfe, _mem):
         for i in range(0, len(self.SCODE_LIST)):
+            # Signal Code
             _codeobj = self._memobj.pttid[i].code
             _code = "".join([
                 DTMF_CHARS[x] for x in _codeobj if int(x) < 0x1F])
@@ -473,14 +514,33 @@ class UV17Pro(bfc.BaofengCommonHT):
             val.set_charset(DTMF_CHARS)
             pttid = RadioSetting("pttid/%i.code" % i,
                                  "Signal Code %i" % (i + 1), val)
+            if self.MODEL == "BF-F8HP-PRO":
+                pttid.set_doc("3 characters maximum")
             pttid.set_apply_callback(self.apply_code, self._memobj.pttid[i], 5)
             dtmfe.append(pttid)
+
+            # Signal Code Name
+            _nameobj = self._memobj.pttid[i]
+            try:
+                rs = RadioSetting(
+                    "pttid/%i.name" % i,
+                    "Signal Code %i Name" % (i + 1),
+                    RadioSettingValueString(
+                        0, 10, self._filterCodeName(_nameobj.name),
+                        False, CHARSET_GB2312))
+                rs.set_apply_callback(self.apply_codename, _nameobj)
+                dtmfe.append(rs)
+            except AttributeError:
+                # UV17, et al do not have pttid.name
+                pass
 
         _codeobj = self._memobj.ani.code
         _code = "".join([DTMF_CHARS[x] for x in _codeobj if int(x) < 0x1F])
         val = RadioSettingValueString(0, 5, _code, False)
         val.set_charset(DTMF_CHARS)
         rs = RadioSetting("ani.code", "ANI Code", val)
+        if self.MODEL == "BF-F8HP-PRO":
+            rs.set_doc("3 characters maximum")
         rs.set_apply_callback(self.apply_code, self._memobj.ani, 5)
         dtmfe.append(rs)
 
@@ -491,7 +551,7 @@ class UV17Pro(bfc.BaofengCommonHT):
             val = _mem.ani.dtmfon
         rs = RadioSetting("ani.dtmfon", "DTMF Speed (on)",
                           RadioSettingValueList(LIST_DTMFSPEED,
-                                                LIST_DTMFSPEED[val]))
+                                                current_index=val))
         dtmfe.append(rs)
 
         if _mem.ani.dtmfoff > 0xC3:
@@ -500,14 +560,14 @@ class UV17Pro(bfc.BaofengCommonHT):
             val = _mem.ani.dtmfoff
         rs = RadioSetting("ani.dtmfoff", "DTMF Speed (off)",
                           RadioSettingValueList(LIST_DTMFSPEED,
-                                                LIST_DTMFSPEED[val]))
+                                                current_index=val))
         dtmfe.append(rs)
 
         if self._has_when_to_send_aniid:
-            rs = RadioSetting("ani.aniid", "When to send ANI ID",
-                              RadioSettingValueList(LIST_PTTID,
-                                                    LIST_PTTID[
-                                                        _mem.ani.aniid]))
+            rs = RadioSetting(
+                "ani.aniid", "When to send ANI ID",
+                RadioSettingValueList(
+                    LIST_PTTID, current_index=_mem.ani.aniid))
             dtmfe.append(rs)
 
         if _mem.settings.hangup >= len(LIST_HANGUPTIME):
@@ -516,8 +576,7 @@ class UV17Pro(bfc.BaofengCommonHT):
             val = _mem.settings.hangup
         rs = RadioSetting("settings.hangup", "Hang-up time",
                           RadioSettingValueList(LIST_HANGUPTIME,
-                                                LIST_HANGUPTIME[
-                                                    val]))
+                                                current_index=val))
         dtmfe.append(rs)
 
     def get_settings_common_basic(self, basic, _mem):
@@ -527,7 +586,7 @@ class UV17Pro(bfc.BaofengCommonHT):
             val = _mem.settings.squelch
         rs = RadioSetting("settings.squelch", "Squelch",
                           RadioSettingValueList(
-                              self.SQUELCH_LIST, self.SQUELCH_LIST[val]))
+                              self.SQUELCH_LIST, current_index=val))
         basic.append(rs)
 
         if _mem.settings.tot >= len(self.LIST_TIMEOUT):
@@ -536,7 +595,7 @@ class UV17Pro(bfc.BaofengCommonHT):
             val = _mem.settings.tot
         rs = RadioSetting("settings.tot", "Timeout Timer",
                           RadioSettingValueList(
-                              self.LIST_TIMEOUT, self.LIST_TIMEOUT[val]))
+                              self.LIST_TIMEOUT, current_index=val))
         basic.append(rs)
 
         rs = RadioSetting("settings.dualstandby", "Dual Watch",
@@ -550,18 +609,18 @@ class UV17Pro(bfc.BaofengCommonHT):
                               "Power On Display Type",
                               RadioSettingValueList(
                                   self.LIST_POWERON_DISPLAY_TYPE,
-                                  self.LIST_POWERON_DISPLAY_TYPE[
-                                      _mem.settings.powerondistype]))
+                                  current_index=_mem.settings.powerondistype))
             basic.append(rs)
 
-        if _mem.settings.voice >= len(self.LIST_VOICE):
-            val = 0x01
-        else:
-            val = _mem.settings.voice
-        rs = RadioSetting("settings.voice", "Voice Prompt",
-                          RadioSettingValueList(
-                              self.LIST_VOICE, self.LIST_VOICE[val]))
-        basic.append(rs)
+        if self._has_voice:
+            if _mem.settings.voice >= len(self.LIST_VOICE):
+                val = 0x01
+            else:
+                val = _mem.settings.voice
+            rs = RadioSetting("settings.voice", "Voice Prompt",
+                              RadioSettingValueList(
+                                  self.LIST_VOICE, current_index=val))
+            basic.append(rs)
 
         rs = RadioSetting("settings.voicesw", "Enable Voice",
                           RadioSettingValueBoolean(_mem.settings.voicesw))
@@ -574,7 +633,7 @@ class UV17Pro(bfc.BaofengCommonHT):
         rs = RadioSetting("settings.backlight", "Backlight Timer",
                           RadioSettingValueList(
                               self.LIST_BACKLIGHT_TIMER,
-                              self.LIST_BACKLIGHT_TIMER[val]))
+                              current_index=val))
         basic.append(rs)
 
         rs = RadioSetting("settings.autolock", "Key Auto Lock",
@@ -583,7 +642,8 @@ class UV17Pro(bfc.BaofengCommonHT):
 
         rs = RadioSetting("settings.beep", "Beep",
                           RadioSettingValueList(
-                              LIST_BEEP, LIST_BEEP[_mem.settings.beep]))
+                              self.LIST_BEEP,
+                              current_index=_mem.settings.beep))
         basic.append(rs)
 
         rs = RadioSetting("settings.roger", "Roger",
@@ -593,13 +653,13 @@ class UV17Pro(bfc.BaofengCommonHT):
         rs = RadioSetting("settings.chadistype", "Channel A display type",
                           RadioSettingValueList(
                               self.LIST_MODE,
-                              self.LIST_MODE[_mem.settings.chadistype]))
+                              current_index=_mem.settings.chadistype))
         basic.append(rs)
 
         rs = RadioSetting("settings.chbdistype", "Channel B display type",
                           RadioSettingValueList(
                               self.LIST_MODE,
-                              self.LIST_MODE[_mem.settings.chbdistype]))
+                              current_index=_mem.settings.chbdistype))
         basic.append(rs)
 
     def get_settings_pro_basic(self, basic, _mem):
@@ -610,26 +670,26 @@ class UV17Pro(bfc.BaofengCommonHT):
             val = _mem.settings.savemode
         rs = RadioSetting("settings.savemode", "Save Mode",
                           RadioSettingValueList(self.LIST_PW_SAVEMODE,
-                                                self.LIST_PW_SAVEMODE[val]))
+                                                current_index=val))
         basic.append(rs)
 
         rs = RadioSetting("settings.totalarm", "Timeout Timer Alarm",
                           RadioSettingValueList(
                               LIST_TIMEOUT_ALARM,
-                              LIST_TIMEOUT_ALARM[_mem.settings.totalarm]))
+                              current_index=_mem.settings.totalarm))
         basic.append(rs)
 
         if self._has_pilot_tone:
             rs = RadioSetting("settings.tone", "Pilot Tone",
                               RadioSettingValueList(
                                 LIST_PILOT_TONE,
-                                LIST_PILOT_TONE[_mem.settings.tone]))
+                                current_index=_mem.settings.tone))
             basic.append(rs)
 
         rs = RadioSetting("settings.sidetone", "Side Tone",
                           RadioSettingValueList(
                               LIST_SIDE_TONE,
-                              LIST_SIDE_TONE[_mem.settings.sidetone]))
+                              current_index=_mem.settings.sidetone))
         basic.append(rs)
 
         rs = RadioSetting("settings.tailclear", "Tail Clear",
@@ -639,13 +699,13 @@ class UV17Pro(bfc.BaofengCommonHT):
         rs = RadioSetting("settings.scanmode", "Scan Mode",
                           RadioSettingValueList(
                               LIST_SCANMODE,
-                              LIST_SCANMODE[_mem.settings.scanmode]))
+                              current_index=_mem.settings.scanmode))
         basic.append(rs)
 
         rs = RadioSetting("settings.alarmmode", "Alarm Mode",
                           RadioSettingValueList(
                               LIST_ALARMMODE,
-                              LIST_ALARMMODE[_mem.settings.alarmmode]))
+                              current_index=_mem.settings.alarmmode))
         basic.append(rs)
 
         rs = RadioSetting("settings.alarmtone", "Sound Alarm",
@@ -658,29 +718,29 @@ class UV17Pro(bfc.BaofengCommonHT):
 
         rs = RadioSetting("settings.menuquittime", "Menu Quit Timer",
                           RadioSettingValueList(
-                              LIST_MENU_QUIT_TIME,
-                              LIST_MENU_QUIT_TIME[
-                                  _mem.settings.menuquittime]))
+                              self.LIST_MENU_QUIT_TIME,
+                              current_index=_mem.settings.menuquittime))
         basic.append(rs)
 
         if self._has_send_id_delay:
             rs = RadioSetting("settings.pttdly", "Send ID Delay",
                               RadioSettingValueList(
-                                LIST_ID_DELAY,
-                                LIST_ID_DELAY[_mem.settings.pttdly]))
+                                self.LIST_ID_DELAY,
+                                current_index=_mem.settings.pttdly))
             basic.append(rs)
 
         rs = RadioSetting("settings.ctsdcsscantype", "QT Save Mode",
                           RadioSettingValueList(
                               LIST_QT_SAVEMODE,
-                              LIST_QT_SAVEMODE[_mem.settings.ctsdcsscantype]))
+                              current_index=_mem.settings.ctsdcsscantype))
         basic.append(rs)
 
         def getKey2shortIndex(value):
             key_to_index = {0x07: 0,
                             0x1C: 1,
                             0x1D: 2,
-                            0x2D: 3}
+                            0x2D: 3,
+                            0x0A: 4}
             return key_to_index.get(int(value), 0)
 
         def apply_Key2short(setting, obj):
@@ -688,42 +748,41 @@ class UV17Pro(bfc.BaofengCommonHT):
             key_to_index = {'FM': 0x07,
                             'Scan': 0x1C,
                             'Search': 0x1D,
-                            'Vox': 0x2D}
+                            'Vox': 0x2D,
+                            'TX Power': 0x0A}
             obj.key2short = key_to_index.get(val, 0x07)
 
         if self._has_skey2_short:
             rs = RadioSetting("settings.key2short", "Skey2 Short",
                               RadioSettingValueList(
-                                LIST_SKEY2_SHORT,
-                                LIST_SKEY2_SHORT[
-                                    getKey2shortIndex(
-                                        _mem.settings.key2short)]))
+                                self.LIST_SKEY2_SHORT,
+                                current_index=getKey2shortIndex(
+                                        _mem.settings.key2short)))
             rs.set_apply_callback(apply_Key2short, _mem.settings)
             basic.append(rs)
 
         rs = RadioSetting("settings.chaworkmode", "Channel A work mode",
                           RadioSettingValueList(
                               LIST_WORKMODE,
-                              LIST_WORKMODE[_mem.settings.chaworkmode]))
+                              current_index=_mem.settings.chaworkmode))
         basic.append(rs)
 
         rs = RadioSetting("settings.chbworkmode", "Channel B work mode",
                           RadioSettingValueList(
                               LIST_WORKMODE,
-                              LIST_WORKMODE[_mem.settings.chbworkmode]))
+                              current_index=_mem.settings.chbworkmode))
         basic.append(rs)
 
         rs = RadioSetting("settings.rpttailclear", "Rpt Tail Clear",
                           RadioSettingValueList(
                               LIST_RPT_TAIL_CLEAR,
-                              LIST_RPT_TAIL_CLEAR[
-                                  _mem.settings.rpttailclear]))
+                              current_index=_mem.settings.rpttailclear))
         basic.append(rs)
 
         rs = RadioSetting("settings.rpttaildet", "Rpt Tail Delay",
                           RadioSettingValueList(
                               LIST_RPT_TAIL_CLEAR,
-                              LIST_RPT_TAIL_CLEAR[_mem.settings.rpttaildet]))
+                              current_index=_mem.settings.rpttaildet))
         basic.append(rs)
 
         rs = RadioSetting("settings.rstmenu", "Enable Menu Rst",
@@ -738,19 +797,19 @@ class UV17Pro(bfc.BaofengCommonHT):
             rs = RadioSetting("settings.vox", "Vox Level",
                               RadioSettingValueList(
                                 LIST_VOX_LEVEL_ALT,
-                                LIST_VOX_LEVEL_ALT[_mem.settings.vox]))
+                                current_index=_mem.settings.vox))
             basic.append(rs)
         else:
             rs = RadioSetting("settings.vox", "Vox Level",
                               RadioSettingValueList(
                                 LIST_VOX_LEVEL,
-                                LIST_VOX_LEVEL[_mem.settings.vox]))
+                                current_index=_mem.settings.vox))
             basic.append(rs)
 
         rs = RadioSetting("settings.voxdlytime", "Vox Delay Time",
                           RadioSettingValueList(
                               LIST_VOX_DELAY_TIME,
-                              LIST_VOX_DELAY_TIME[_mem.settings.voxdlytime]))
+                              current_index=_mem.settings.voxdlytime))
         basic.append(rs)
 
         if self._has_gps:
@@ -761,13 +820,13 @@ class UV17Pro(bfc.BaofengCommonHT):
             rs = RadioSetting("settings.gpsmode", "GPS Mode",
                               RadioSettingValueList(
                                 LIST_GPS_MODE,
-                                LIST_GPS_MODE[_mem.settings.gpsmode]))
+                                current_index=_mem.settings.gpsmode))
             basic.append(rs)
 
             rs = RadioSetting("settings.gpstimezone", "GPS Timezone",
                               RadioSettingValueList(
                                 LIST_GPS_TIMEZONE,
-                                LIST_GPS_TIMEZONE[_mem.settings.gpstimezone]))
+                                current_index=_mem.settings.gpstimezone))
             basic.append(rs)
 
         rs = RadioSetting("settings.fmenable", "Disable FM radio",
@@ -813,7 +872,8 @@ class UV17Pro(bfc.BaofengCommonHT):
         else:
             val = _mem.vfo.a.sftd
         rs = RadioSetting("vfo.a.sftd", "Shift",
-                          RadioSettingValueList(LIST_SHIFTS, LIST_SHIFTS[val]))
+                          RadioSettingValueList(
+                              LIST_SHIFTS, current_index=val))
         vfoA.append(rs)
 
         if _mem.vfo.b.sftd >= len(LIST_SHIFTS):
@@ -821,7 +881,8 @@ class UV17Pro(bfc.BaofengCommonHT):
         else:
             val = _mem.vfo.b.sftd
         rs = RadioSetting("vfo.b.sftd", "Shift",
-                          RadioSettingValueList(LIST_SHIFTS, LIST_SHIFTS[val]))
+                          RadioSettingValueList(
+                              LIST_SHIFTS, current_index=val))
         vfoB.append(rs)
 
         def convert_bytes_to_offset(bytes):
@@ -857,7 +918,7 @@ class UV17Pro(bfc.BaofengCommonHT):
             val = _mem.vfo.a.lowpower
         rs = RadioSetting("vfo.a.lowpower", "Power",
                           RadioSettingValueList(POWER_LEVELS,
-                                                POWER_LEVELS[val]))
+                                                current_index=val))
         vfoA.append(rs)
 
         if _mem.vfo.b.lowpower >= len(POWER_LEVELS):
@@ -866,7 +927,7 @@ class UV17Pro(bfc.BaofengCommonHT):
             val = _mem.vfo.b.lowpower
         rs = RadioSetting("vfo.b.lowpower", "Power",
                           RadioSettingValueList(POWER_LEVELS,
-                                                POWER_LEVELS[val]))
+                                                current_index=val))
         vfoB.append(rs)
 
         if _mem.vfo.a.wide >= len(LIST_BANDWIDTH):
@@ -875,7 +936,7 @@ class UV17Pro(bfc.BaofengCommonHT):
             val = _mem.vfo.a.wide
         rs = RadioSetting("vfo.a.wide", "Bandwidth",
                           RadioSettingValueList(LIST_BANDWIDTH,
-                                                LIST_BANDWIDTH[val]))
+                                                current_index=val))
         vfoA.append(rs)
 
         if _mem.vfo.b.wide >= len(LIST_BANDWIDTH):
@@ -884,7 +945,7 @@ class UV17Pro(bfc.BaofengCommonHT):
             val = _mem.vfo.b.wide
         rs = RadioSetting("vfo.b.wide", "Bandwidth",
                           RadioSettingValueList(LIST_BANDWIDTH,
-                                                LIST_BANDWIDTH[val]))
+                                                current_index=val))
         vfoB.append(rs)
 
         if _mem.vfo.a.scode >= len(self.SCODE_LIST):
@@ -893,7 +954,7 @@ class UV17Pro(bfc.BaofengCommonHT):
             val = _mem.vfo.a.scode
         rs = RadioSetting("vfo.a.scode", "Signal Code",
                           RadioSettingValueList(self.SCODE_LIST,
-                                                self.SCODE_LIST[val]))
+                                                current_index=val))
         vfoA.append(rs)
 
         if _mem.vfo.b.scode >= len(self.SCODE_LIST):
@@ -902,7 +963,7 @@ class UV17Pro(bfc.BaofengCommonHT):
             val = _mem.vfo.b.scode
         rs = RadioSetting("vfo.b.scode", "Signal Code",
                           RadioSettingValueList(self.SCODE_LIST,
-                                                self.SCODE_LIST[val]))
+                                                current_index=val))
         vfoB.append(rs)
 
         if _mem.vfo.a.step >= len(STEPS):
@@ -910,7 +971,7 @@ class UV17Pro(bfc.BaofengCommonHT):
         else:
             val = _mem.vfo.a.step
         rs = RadioSetting("vfo.a.step", "Tuning Step",
-                          RadioSettingValueList(LIST_STEPS, LIST_STEPS[val]))
+                          RadioSettingValueList(LIST_STEPS, current_index=val))
         vfoA.append(rs)
 
         if _mem.vfo.b.step >= len(STEPS):
@@ -918,7 +979,7 @@ class UV17Pro(bfc.BaofengCommonHT):
         else:
             val = _mem.vfo.b.step
         rs = RadioSetting("vfo.b.step", "Tuning Step",
-                          RadioSettingValueList(LIST_STEPS, LIST_STEPS[val]))
+                          RadioSettingValueList(LIST_STEPS, current_index=val))
         vfoB.append(rs)
 
         workmode.append(vfoA)
@@ -946,6 +1007,9 @@ class UV17Pro(bfc.BaofengCommonHT):
                                   RadioSettingValueString(
                                       0, 16, _filterName(_nameobj.name), False,
                                       CHARSET_GB2312))
+                if self.MODEL == "BF-F8HP-PRO":
+                    rs.set_doc("12 characters maximum (only the first 6 show "
+                               "up on the main display)")
                 rs.set_apply_callback(apply_bankname, _nameobj)
                 bank.append(rs)
 
@@ -1082,6 +1146,20 @@ class UV17Pro(bfc.BaofengCommonHT):
 
         return rf
 
+    def validate_memory(self, mem):
+        msgs = []
+        if 'AM' in self.MODES:
+            if chirp_common.in_range(mem.freq,
+                                     [self._airband]) and mem.mode != 'AM':
+                msgs.append(chirp_common.ValidationWarning(
+                    _('Frequency in this range requires AM mode')))
+            if not chirp_common.in_range(mem.freq,
+                                         [self._airband]) and mem.mode == 'AM':
+                msgs.append(chirp_common.ValidationWarning(
+                    _('Frequency in this range must not be AM mode')))
+
+        return msgs + super().validate_memory(mem)
+
     def decode_tone(self, val):
         mode = ""
         pol = "N"
@@ -1161,13 +1239,9 @@ class UV17Pro(bfc.BaofengCommonHT):
             mem.power = levels[0]
 
         mem.mode = _mem.wide and self.MODES[0] or self.MODES[1]
-        if (mem.freq >= self._airband[0] and mem.freq <= self._airband[1]):
-            # NOTE: AM is not in valid_modes because you can't arbitrarily
-            # enable it on this radio. However, we can expose it as immutable
-            # which will display properly in the UI and not allow the user
-            # to change those channels to FM.
+        if chirp_common.in_range(mem.freq, [self._airband]):
+            print('freq %i means am' % mem.freq)
             mem.mode = "AM"
-            mem.immutable = ['mode']
 
         mem.extra = RadioSettingGroup("Extra", "extra")
 
@@ -1177,24 +1251,34 @@ class UV17Pro(bfc.BaofengCommonHT):
 
         rs = RadioSetting("pttid", "PTT ID",
                           RadioSettingValueList(self.PTTID_LIST,
-                                                self.PTTID_LIST[
-                                                    _mem.pttid]))
+                                                current_index=_mem.pttid))
         mem.extra.append(rs)
 
         scode = (_mem.scode - self._scode_offset) % len(self.SCODE_LIST)
         rs = RadioSetting("scode", "S-CODE",
                           RadioSettingValueList(self.SCODE_LIST,
-                                                self.SCODE_LIST[
-                                                    scode]))
+                                                current_index=scode))
         mem.extra.append(rs)
+
+        if self.MODEL == "BF-F8HP-PRO":
+            rs = RadioSetting("sqmode", "RX DTMF",
+                              RadioSettingValueBoolean(_mem.sqmode))
+            mem.extra.append(rs)
+
+            rs = RadioSetting("fhss", "FHSS",
+                              RadioSettingValueBoolean(_mem.fhss))
+            mem.extra.append(rs)
 
         mem.name = str(name).replace('\xFF', ' ').replace('\x00', ' ').rstrip()
 
-    def get_raw_memory(self, number):
+    def _get_raw_memory(self, number):
         return self._memobj.memory[number - 1]
 
+    def get_raw_memory(self, number):
+        return repr(self._get_raw_memory(number))
+
     def get_memory(self, number):
-        _mem = self.get_raw_memory(number)
+        _mem = self._get_raw_memory(number)
 
         mem = chirp_common.Memory()
         mem.number = number
@@ -1204,7 +1288,7 @@ class UV17Pro(bfc.BaofengCommonHT):
         return mem
 
     def unsplit_txfreq(self, mem):
-        _mem = self.get_raw_memory(mem.number)
+        _mem = self._get_raw_memory(mem.number)
         if mem.duplex == "off":
             for i in range(0, 4):
                 _mem.txfreq[i].set_raw(b"\xFF")
@@ -1250,7 +1334,7 @@ class UV17Pro(bfc.BaofengCommonHT):
             _mem.scode = self._scode_offset
 
     def set_memory(self, mem):
-        _mem = self.get_raw_memory(mem.number)
+        _mem = self._get_raw_memory(mem.number)
 
         _mem.set_raw(b"\x00"*16 + b"\xff" * 16)
 
@@ -1262,6 +1346,12 @@ class UV17Pro(bfc.BaofengCommonHT):
         _mem.name = mem.name.ljust(_namelength, '\xFF')
 
         self.set_memory_common(mem, _mem)
+
+
+@directory.register
+class UV25(UV17Pro):
+    VENDOR = "Baofeng"
+    MODEL = "UV-25"
 
 
 @directory.register
@@ -1286,22 +1376,7 @@ class UV17ProGPS(UV17Pro):
     _has_skey2_short = True
     VALID_BANDS = [UV17Pro._airband, UV17Pro._vhf_range, UV17Pro._vhf2_range,
                    UV17Pro._uhf_range, UV17Pro._uhf2_range]
-
-    def check_set_memory_immutable_policy(self, existing, new):
-        if (self._airband[0] <= new.freq <= self._airband[1] and
-                new.mode == 'AM'):
-            # This is valid, so mark mode as immutable so it doesn't get
-            # blocked, and let the radio override it during set.
-            new.immutable.append('mode')
-            existing.immutable = []
-        elif existing.mode == 'AM' and new.mode in self.MODES:
-            # If we're going from a forced-AM channel to some valid one,
-            # clear immutable so we allow the change.
-            try:
-                existing.immutable.remove('mode')
-            except ValueError:
-                pass
-        super().check_set_memory_immutable_policy(existing, new)
+    MODES = UV17Pro.MODES + ['AM']
 
 
 @directory.register
@@ -1317,25 +1392,162 @@ class BF5RM(UV17Pro):
     SCODE_LIST = ["%s" % x for x in range(1, 16)]
     LIST_PW_SAVEMODE = ["Off", "1:1", "1:2", "1:4"]
     _has_workmode_support = True
-
-    def check_set_memory_immutable_policy(self, existing, new):
-        if (self._airband[0] <= new.freq <= self._airband[1] and
-                new.mode == 'AM'):
-            # This is valid, so mark mode as immutable so it doesn't get
-            # blocked, and let the radio override it during set.
-            new.immutable.append('mode')
-            existing.immutable = []
-        elif existing.mode == 'AM' and new.mode in self.MODES:
-            # If we're going from a forced-AM channel to some valid one,
-            # clear immutable so we allow the change.
-            try:
-                existing.immutable.remove('mode')
-            except ValueError:
-                pass
-        super().check_set_memory_immutable_policy(existing, new)
+    MODES = UV17Pro.MODES + ['AM']
 
 
 @directory.register
 class BFK5Plus(BF5RM):
     VENDOR = "Baofeng"
     MODEL = "K5-Plus"
+
+
+@directory.register
+class GM5RH(UV17Pro):
+    VENDOR = "Baofeng"
+    MODEL = "GM-5RH"
+
+    VALID_BANDS = [UV17Pro._vhf_range, UV17Pro._vhf2_range, UV17Pro._uhf_range]
+    POWER_LEVELS = [chirp_common.PowerLevel("High", watts=5.00),
+                    chirp_common.PowerLevel("Low", watts=0.50),
+                    chirp_common.PowerLevel("Medium", watts=3.00)]
+    SCODE_LIST = ["%s" % x for x in range(1, 16)]
+    LIST_PW_SAVEMODE = ["Off", "1:1", "2:1", "3:1", "4:1"]
+    _has_workmode_support = True
+
+    _magic = MSTRING_GM5RH
+
+
+@directory.register
+class UV5GPlus(GM5RH):
+    VENDOR = "Radioddity"
+    MODEL = "UV-5G Plus"
+
+
+@directory.register
+class UV17RPlus(UV17Pro):
+    VENDOR = "Baofeng"
+    MODEL = "UV-17R-Plus"
+    VALID_BANDS = [UV17Pro._airband, UV17Pro._vhf_range, UV17Pro._vhf2_range,
+                   UV17Pro._uhf_range, UV17Pro._uhf2_range]
+    MODES = UV17Pro.MODES + ['AM']
+
+
+@directory.register
+class F8HPPro(UV17Pro):
+    VENDOR = "Baofeng"
+    MODEL = "BF-F8HP-PRO"
+
+    _magic = MSTRING_BFF8HPPRO
+    _magics = [(b"\x46", 16),
+               (b"\x4d", 6),
+               (b"\x53\x45\x4E\x44\x12\x0D\x0A\x0A\x10\x03\x0D\x02\x11\x0C" +
+                b"\x12\x0A\x11\x06\x04\x0E\x02\x09\x0D\x00\x00", 1)]
+    _encrsym = 3
+    VALID_BANDS = [UV17Pro._airband, UV17Pro._vhf_range, UV17Pro._vhf2_range,
+                   UV17Pro._uhf_range, UV17Pro._uhf2_range]
+    LIST_POWER_ON_TIME = ['3 Seconds', '5 Seconds', '10 Seconds']
+    LIST_GPS_UNITS = ['km/h', 'MPH', 'kn']
+    LIST_POWERON_DISPLAY_TYPE = ["LOGO", "BATT voltage", "Station ID"]
+    LIST_BEEP = ["Off", "On"]
+    LIST_MENU_QUIT_TIME = ["10 sec", "20 sec", "30 sec", "60 sec", "Off"]
+    LIST_BACKLIGHT_TIMER = ["Always On", "5 sec", "10 sec", "15 sec",
+                            "20 sec", "30 sec", "60 sec"]
+    LIST_ID_DELAY = ["%s ms" % x for x in range(0, 1600, 100)]
+    LIST_SKEY2_SHORT = ["FM", "Scan", "Search", "Vox", "TX Power"]
+    MODES = UV17Pro.MODES + ['AM']
+
+    _has_support_for_banknames = True
+    _vfoscan = True
+    _has_gps = True
+    _has_voxsw = True
+    _has_pilot_tone = True
+    _has_send_id_delay = True
+    _has_skey2_short = True
+    _has_voice = False
+    _has_when_to_send_aniid = False
+
+    MEM_STARTS = [0x0000, 0x9000, 0xA000, 0xD000]
+    MEM_SIZES = [0x8040, 0x0080, 0x02C0, 0x00C0]
+
+    MEM_TOTAL = 0x8440
+    _mem_positions = (0x80C0, 0x80E0, 0x8380)
+
+    def get_settings_pro_dtmf(self, dtmfe, _mem):
+        super().get_settings_pro_dtmf(dtmfe, _mem)
+
+        rs = RadioSetting("ani.separatecode", "Separate Code",
+                          RadioSettingValueList(
+                            self.LIST_SEPARATE_CODE,
+                            self.LIST_SEPARATE_CODE[_mem.ani.separatecode]))
+        dtmfe.append(rs)
+
+        rs = RadioSetting("ani.groupcallcode", "Group Call Code",
+                          RadioSettingValueList(
+                            self.LIST_GROUP_CALL_CODE,
+                            self.LIST_GROUP_CALL_CODE[_mem.ani.groupcallcode]))
+        dtmfe.append(rs)
+
+        _codeobj = self._memobj.upcode.code
+        _code = "".join([DTMF_CHARS[x] for x in _codeobj if int(x) < 0x1F])
+        val = RadioSettingValueString(0, 16, _code, False)
+        val.set_charset(DTMF_CHARS)
+        rs = RadioSetting("upcode.code", "Up Code", val)
+        rs.set_apply_callback(self.apply_code, self._memobj.upcode, 16)
+        dtmfe.append(rs)
+
+        _codeobj = self._memobj.downcode.code
+        _code = "".join([DTMF_CHARS[x] for x in _codeobj if int(x) < 0x1F])
+        val = RadioSettingValueString(0, 16, _code, False)
+        val.set_charset(DTMF_CHARS)
+        rs = RadioSetting("downcode.code", "Down Code", val)
+        rs.set_apply_callback(self.apply_code, self._memobj.downcode, 16)
+        dtmfe.append(rs)
+
+    def get_settings_pro_basic(self, basic, _mem):
+        super().get_settings_pro_basic(basic, _mem)
+
+        rs = RadioSetting("settings.dispani", "Display ANI",
+                          RadioSettingValueBoolean(_mem.settings.dispani))
+        basic.append(rs)
+
+        rs = RadioSetting("settings.pontime", "Power on Time",
+                          RadioSettingValueList(
+                            self.LIST_POWER_ON_TIME,
+                            self.LIST_POWER_ON_TIME[_mem.settings.pontime]))
+        basic.append(rs)
+
+        rs = RadioSetting("settings.gpsunits", "GPS Speed Units",
+                          RadioSettingValueList(
+                            self.LIST_GPS_UNITS,
+                            self.LIST_GPS_UNITS[_mem.settings.gpsunits]))
+        basic.append(rs)
+
+        rs = RadioSetting("settings.inputdtmf", "Input DTMF",
+                          RadioSettingValueBoolean(_mem.settings.inputdtmf))
+        basic.append(rs)
+
+        rs = RadioSetting("settings.singlewatch", "Single Watch",
+                          RadioSettingValueBoolean(_mem.settings.singlewatch))
+        basic.append(rs)
+
+        def _filterStationID(name):
+            fname = b""
+            for char in name:
+                if ord(str(char)) in [0, 255]:
+                    break
+                fname += int(char).to_bytes(1, 'big')
+            return fname.decode('gb2312').strip()
+
+        def apply_stationid(setting, obj):
+            stationid = (str(setting.value).encode('gb2312')[:8].ljust(8,
+                         b"\xFF"))
+            obj.stationid = stationid
+
+        _nameobj = self._memobj.settings
+        rs = RadioSetting("settings.stationid",
+                          "StationID",
+                          RadioSettingValueString(
+                              0, 8, _filterStationID(_nameobj.stationid),
+                              False, CHARSET_GB2312))
+        rs.set_apply_callback(apply_stationid, _nameobj)
+        basic.append(rs)

@@ -16,6 +16,8 @@ sys.modules['chirp.wxui.developer'] = mock.MagicMock()
 # These need to be imported after the above mock so that we don't require
 # wx to be present for these tests
 from tests.unit import base  # noqa
+from chirp import chirp_common  # noqa
+from chirp import directory  # noqa
 from chirp.wxui import clone  # noqa
 from chirp.wxui import config  # noqa
 from chirp.wxui import radiothread  # noqa
@@ -156,6 +158,22 @@ class TestClone(base.BaseTest):
             [clone.port_label(p)
                 for p in sorted(ports, key=clone.port_sort_key)])
 
+    def test_detected_model_labels(self):
+        # Make sure all our detected model labels will be reasonable
+        # (and nonzero) in length. If the full label is too long, it will not
+        # be visible in the model box.
+        for rclass in [x for x in directory.DRV_TO_RADIO.values()
+                       if issubclass(x, chirp_common.DetectableInterface)]:
+            labels = []
+            for child_rclass in rclass.detected_models(include_self=False):
+                label = clone.detected_value(rclass, child_rclass)
+                self.assertNotEqual('', label)
+                labels.append(label)
+            if labels:
+                label = '%s (+ %s)' % (rclass.MODEL, ','.join(labels))
+                self.assertLessEqual(len(label), 32,
+                                     'Label %r is too long' % label)
+
 
 class TestException(Exception):
     pass
@@ -205,21 +223,21 @@ class TestStartup(base.BaseTest):
             # If we made it through all the checks, and thus prompted the user,
             # make sure we get to the makedirs part if expected
             self.assertRaises(TestException,
-                              self.maybe_install_desktop, self.args)
+                              self.maybe_install_desktop, self.args, None)
         elif answ is False:
             # If we were supposed to make it to the prompt but answer no,
             # make sure we did
-            self.maybe_install_desktop(self.args)
+            self.maybe_install_desktop(self.args, None)
             self.assertFalse(os.makedirs.called)
             self.assertTrue(wx.MessageBox.called)
         else:
             # If we were not supposed to make it to the prompt, make sure we
             # didn't, nor did we do any create actions
-            self.maybe_install_desktop(self.args)
+            self.maybe_install_desktop(self.args, None)
             self.assertFalse(os.makedirs.called)
             self.assertFalse(wx.MessageBox.called)
 
     def test_linux_desktop_file_exists(self):
         os.path.exists.return_value = True
-        self.maybe_install_desktop(self.args)
+        self.maybe_install_desktop(self.args, None)
         self.assertFalse(os.makedirs.called)

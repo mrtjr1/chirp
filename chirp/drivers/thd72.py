@@ -225,7 +225,6 @@ class THD72Radio(chirp_common.CloneModeRadio):
     VENDOR = "Kenwood"
     MODEL = "TH-D72 (clone mode)"
     HARDWARE_FLOW = sys.platform == "darwin"  # only OS X driver needs hw flow
-    NEEDS_COMPAT_SERIAL = False
     FORMATS = [directory.register_format('Kenwood MCP4A', '*.mc4')]
 
     mem_upper_limit = 1022
@@ -645,7 +644,7 @@ class THD72Radio(chirp_common.CloneModeRadio):
 
         val = RadioSettingValueList(
             self._LCD_CONTRAST,
-            self._LCD_CONTRAST[display_settings.contrast - 1])
+            current_index=display_settings.contrast - 1)
         rs = RadioSetting("display.contrast", "LCD Contrast",
                           val)
         rs.set_apply_callback(self.apply_lcd_contrast, display_settings)
@@ -653,7 +652,7 @@ class THD72Radio(chirp_common.CloneModeRadio):
 
         val = RadioSettingValueList(
             self._LAMP_CONTROL,
-            self._LAMP_CONTROL[display_settings.lamp_control])
+            current_index=display_settings.lamp_control)
         rs = RadioSetting("display.lamp_control", "Lamp Control",
                           val)
         rs.set_apply_callback(self.apply_lamp_control, display_settings)
@@ -661,7 +660,7 @@ class THD72Radio(chirp_common.CloneModeRadio):
 
         val = RadioSettingValueList(
             self._LAMP_TIMER,
-            self._LAMP_TIMER[display_settings.lamp_timer - 2])
+            current_index=display_settings.lamp_timer - 2)
         rs = RadioSetting("display.lamp_timer", "Lamp Timer",
                           val)
         rs.set_apply_callback(self.apply_lamp_timer, display_settings)
@@ -685,7 +684,7 @@ class THD72Radio(chirp_common.CloneModeRadio):
 
         val = RadioSettingValueList(
             self._BATTERY_SAVER,
-            self._BATTERY_SAVER[battery_settings.battery_saver])
+            current_index=battery_settings.battery_saver)
         rs = RadioSetting("battery.battery_saver", "Battery Saver",
                           val)
         rs.set_apply_callback(self.apply_battery_saver, battery_settings)
@@ -693,7 +692,7 @@ class THD72Radio(chirp_common.CloneModeRadio):
 
         val = RadioSettingValueList(
             self._APO,
-            self._APO[battery_settings.APO])
+            current_index=battery_settings.APO)
         rs = RadioSetting("battery.APO", "Auto Power Off",
                           val)
         rs.set_apply_callback(self.apply_APO, battery_settings)
@@ -717,7 +716,7 @@ class THD72Radio(chirp_common.CloneModeRadio):
 
         val = RadioSettingValueList(
             self._AUDIO_BALANCE,
-            self._AUDIO_BALANCE[audio_settings.balance])
+            current_index=audio_settings.balance)
         rs = RadioSetting("audio.balance", "Balance",
                           val)
         rs.set_apply_callback(self.apply_balance, audio_settings)
@@ -725,7 +724,7 @@ class THD72Radio(chirp_common.CloneModeRadio):
 
         val = RadioSettingValueList(
             self._KEY_BEEP,
-            self._KEY_BEEP[audio_settings.key_beep])
+            current_index=audio_settings.key_beep)
         rs = RadioSetting("audio.key_beep", "Key Beep",
                           val)
         rs.set_apply_callback(self.apply_key_beep, audio_settings)

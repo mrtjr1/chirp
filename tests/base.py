@@ -132,6 +132,14 @@ class DriverTest(unittest.TestCase):
     def assertEqualMem(self, a, b, ignore=None):
         if a.tmode == "Cross":
             tx_mode, rx_mode = a.cross_mode.split("->")
+        if ignore is None:
+            ignore = []
+
+        if a.duplex == b.duplex == 'off':
+            # If we're asking for duplex=off, we should not obsess over the
+            # driver keeping track of our offset, as it may use the offset
+            # field to manage the TX behavior
+            ignore.append('offset')
 
         a_vals = {}
         b_vals = {}
@@ -166,15 +174,16 @@ class DriverTest(unittest.TestCase):
                                         (a.tmode == "Cross" and
                                          rx_mode == "Tone"))):
                 continue
-            elif k == "dtcs" and not (
-                    (a.tmode == "DTCS" and not self.rf.has_rx_dtcs) or
-                    (a.tmode == "Cross" and tx_mode == "DTCS") or
-                    (a.tmode == "Cross" and rx_mode == "DTCS" and
-                     not self.rf.has_rx_dtcs)):
+            elif k == "dtcs" and (a.tmode != 'DTCS' or
+                                  (a.tmode == 'Cross' and tx_mode != 'DTCS')):
+                # If we are not in a tmode where a transmit DTCS code is
+                # required, we do not care if the code is persisted.
                 continue
             elif k == "rx_dtcs" and (not self.rf.has_rx_dtcs or
                                      not (a.tmode == "Cross" and
                                           rx_mode == "DTCS")):
+                # If we are not in a tmode where a receive DTCS code is
+                # required, we do not care if the code is persisted.
                 continue
             elif k == "offset" and not a.duplex:
                 continue

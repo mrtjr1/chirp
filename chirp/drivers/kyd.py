@@ -206,6 +206,7 @@ class NC630aRadio(chirp_common.CloneModeRadio):
     MODEL = "NC-630A"
     ALIASES = [MT700Alias]
     BAUD_RATE = 9600
+    NEEDS_COMPAT_SERIAL = True
 
     _ranges = [
                (0x0000, 0x0330),
@@ -339,7 +340,7 @@ class NC630aRadio(chirp_common.CloneModeRadio):
 
         rs = RadioSetting("bcl", "Busy Channel Lockout",
                           RadioSettingValueList(
-                              BCL_LIST, BCL_LIST[_mem.bcl]))
+                              BCL_LIST, current_index=_mem.bcl))
         mem.extra.append(rs)
 
         return mem
@@ -433,23 +434,23 @@ class NC630aRadio(chirp_common.CloneModeRadio):
         rs = RadioSetting("tot", "Time-out timer",
                           RadioSettingValueList(
                               TIMEOUTTIMER_LIST,
-                              TIMEOUTTIMER_LIST[_settings.tot]))
+                              current_index=_settings.tot))
         basic.append(rs)
 
         rs = RadioSetting("totalert", "TOT Pre-alert",
                           RadioSettingValueList(
                               TOTALERT_LIST,
-                              TOTALERT_LIST[_settings.totalert]))
+                              current_index=_settings.totalert))
         basic.append(rs)
 
         rs = RadioSetting("vox", "VOX Gain",
                           RadioSettingValueList(
-                              VOX_LIST, VOX_LIST[_settings.vox]))
+                              VOX_LIST, current_index=_settings.vox))
         basic.append(rs)
 
         rs = RadioSetting("voice", "Voice Annumciation",
                           RadioSettingValueList(
-                              VOICE_LIST, VOICE_LIST[_settings.voice]))
+                              VOICE_LIST, current_index=_settings.voice))
         basic.append(rs)
 
         rs = RadioSetting("squelch", "Squelch Level",
@@ -459,7 +460,7 @@ class NC630aRadio(chirp_common.CloneModeRadio):
         rs = RadioSetting("voxdelay", "VOX Delay",
                           RadioSettingValueList(
                               VOXDELAY_LIST,
-                              VOXDELAY_LIST[_settings.voxdelay]))
+                              current_index=_settings.voxdelay))
         basic.append(rs)
 
         rs = RadioSetting("beep", "Beep",

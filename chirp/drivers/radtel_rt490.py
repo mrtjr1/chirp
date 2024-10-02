@@ -401,7 +401,6 @@ class RT490Radio(chirp_common.CloneModeRadio):
     MODEL = "RT-490"
     BLOCK_SIZE = 0x40  # 64 bytes
     BAUD_RATE = 9600
-    NEEDS_COMPAT_SERIAL = False
 
     POWER_LEVELS = [chirp_common.PowerLevel("H", watts=5.00),
                     chirp_common.PowerLevel("L", watts=3.00)]
@@ -421,6 +420,9 @@ class RT490Radio(chirp_common.CloneModeRadio):
                (0x3400, 0x3C40),
                (0x3FC0, 0x4000)
               ]
+
+    _valid_chars = chirp_common.CHARSET_ALPHANUMERIC + \
+        "`~!@#$%^&*()-=_+[]\\{}|;':\",./<>?"
 
     if RT490_EXPERIMENTAL:
         # Experimental driver (already heavily tested)
@@ -640,7 +642,7 @@ class RT490Radio(chirp_common.CloneModeRadio):
         tmp = 1 if int(_mem.management_settings.active) > 0 else 0
         ret.append(RadioSetting('management_settings.active', 'Radio Status',
                                 RadioSettingValueList(self.ENABLERADIO,
-                                                      self.ENABLERADIO[tmp])))
+                                                      current_index=tmp)))
         return ret
 
     def _get_settings_dtmf(self):
@@ -706,7 +708,7 @@ class RT490Radio(chirp_common.CloneModeRadio):
         dtmf.append(RadioSetting('settings.pttiddelay',
                     'PTT ID Delay', rsvl))
         rsvl = RadioSettingValueList(self.DTMFSTLIST,
-                                     self.DTMFSTLIST[_mem.settings.dtmfst])
+                                     current_index=_mem.settings.dtmfst)
         dtmf.append(RadioSetting('settings.dtmfst',
                                  'DTMF Side Tone (Required for GPS ID)', rsvl))
         return dtmf
@@ -736,8 +738,8 @@ class RT490Radio(chirp_common.CloneModeRadio):
         ret = RadioSettingGroup('settings_vfo@%s' % chan.lower(),
                                 'VFO %s Settings' % chan)
         rsvl = RadioSettingValueList(self.WORKMODES,
-                                     self.WORKMODES[_mem.settings[
-                                         'workmode'+chan.lower()]])
+                                     current_index=_mem.settings[
+                                         'workmode'+chan.lower()])
         ret.append(RadioSetting('settings.workmode%s' % chan.lower(),
                                 'VFO %s Workmode' % chan, rsvl))
         tmp = ''.join(DTMFCHARS[i] for i in _mem.settings_vfo[
@@ -749,8 +751,8 @@ class RT490Radio(chirp_common.CloneModeRadio):
                                 'Rx Frequency', rsvf))
         # TODO Rx/Tx tones
         rsvl = RadioSettingValueList(self.VFO_SFTD,
-                                     self.VFO_SFTD[_mem.settings_vfo[
-                                         'vfo_'+chan.lower()].sftd])
+                                     current_index=_mem.settings_vfo[
+                                         'vfo_'+chan.lower()].sftd)
         ret.append(RadioSetting('settings_vfo.vfo_%s.sftd' % chan.lower(),
                                 'Freq offset direction', rsvl))
         tmp = ''.join(DTMFCHARS[i] for i in _mem.settings_vfo[
@@ -759,33 +761,29 @@ class RT490Radio(chirp_common.CloneModeRadio):
         ret.append(RadioSetting('settings_vfo.vfo_%s.offset' % chan.lower(),
                                 'Tx Offset', rsvf))
         rsvl = RadioSettingValueList(self.SIGNAL,
-                                     self.SIGNAL[
-                                         _mem.settings_vfo[
-                                             'vfo_'+chan.lower()].signal])
+                                     current_index=_mem.settings_vfo[
+                                             'vfo_'+chan.lower()].signal)
         ret.append(RadioSetting('settings_vfo.vfo_%s.signal' % chan.lower(),
                                 'PTT ID Code (S-Code)', rsvl))
         rsvl = RadioSettingValueList(self.POWER_LEVELS_LIST,
-                                     self.POWER_LEVELS_LIST[
-                                         _mem.settings_vfo[
-                                             'vfo_'+chan.lower()].power])
+                                     current_index=_mem.settings_vfo[
+                                             'vfo_'+chan.lower()].power)
         ret.append(RadioSetting('settings_vfo.vfo_%s.power' % chan.lower(),
                                 'Tx Power', rsvl))
         rsvl = RadioSettingValueList(self.FHSS_LIST,
-                                     self.FHSS_LIST[
-                                         _mem.settings_vfo[
-                                             'vfo_'+chan.lower()].fhss])
+                                     current_index=_mem.settings_vfo[
+                                             'vfo_'+chan.lower()].fhss)
         ret.append(RadioSetting('settings_vfo.vfo_%s.fhss' % chan.lower(),
                                 'FHSS (Encryption)', rsvl))
-        rsvl = RadioSettingValueList(['Wide', 'Narrow'],
-                                     ['Wide', 'Narrow'][
-                                         _mem.settings_vfo[
-                                             'vfo_'+chan.lower()].narrow])
+        chanwidth = ['Wide', 'Narrow']
+        rsvl = RadioSettingValueList(
+            chanwidth,
+            int(bool(_mem.settings_vfo['vfo_'+chan.lower()].narrow)))
         ret.append(RadioSetting('settings_vfo.vfo_%s.narrow' % chan.lower(),
                                 'Wide / Narrow', rsvl))
         rsvl = RadioSettingValueList(self.TUNING_STEPS_LIST,
-                                     self.TUNING_STEPS_LIST[
-                                         _mem.settings_vfo[
-                                             'vfo_'+chan.lower()].freqstep])
+                                     current_index=_mem.settings_vfo[
+                                             'vfo_'+chan.lower()].freqstep)
         ret.append(RadioSetting('settings_vfo.vfo_%s.freqstep' % chan.lower(),
                                 'Tuning Step', rsvl))
         return ret
@@ -885,39 +883,46 @@ class RT490Radio(chirp_common.CloneModeRadio):
                        "Channel B Memory index", rsvi))
         ret.append(RadioSetting('settings.vox', 'VOX Sensitivity',
                    RadioSettingValueList(self.VOX_LIST,
-                                         self.VOX_LIST[_mem.settings.vox])))
-        ret.append(RadioSetting('settings.vox_delay', 'VOX Delay',
-                   RadioSettingValueList(self.VOXDELAYLIST,
-                                         self.VOXDELAYLIST[
-                                             _mem.settings.vox_delay])))
+                                         current_index=_mem.settings.vox)))
+        ret.append(
+                   RadioSetting(
+                       'settings.vox_delay', 'VOX Delay',
+                       RadioSettingValueList(
+                           self.VOXDELAYLIST,
+                           current_index=_mem.settings.vox_delay)))
         ret.append(RadioSetting('settings.tdr', 'Dual Receive (TDR)',
                    RadioSettingValueBoolean(_mem.settings.tdr)))
-        ret.append(RadioSetting('settings.txundertdr', 'Tx under TDR',
-                   RadioSettingValueList(self.TDRTXMODES,
-                                         self.TDRTXMODES[
-                                             _mem.settings.txundertdr])))
+        ret.append(
+                   RadioSetting(
+                       'settings.txundertdr', 'Tx under TDR',
+                       RadioSettingValueList(
+                           self.TDRTXMODES,
+                           current_index=_mem.settings.txundertdr)))
         ret.append(RadioSetting('settings.voice', 'Menu Voice Prompts',
                                 RadioSettingValueBoolean(_mem.settings.voice)))
-        ret.append(RadioSetting('settings.scanmode', 'Scan Mode',
-                   RadioSettingValueList(self.SCANMODES,
-                                         self.SCANMODES[
-                                             _mem.settings.scanmode])))
+        ret.append(
+            RadioSetting(
+                'settings.scanmode', 'Scan Mode',
+                RadioSettingValueList(
+                    self.SCANMODES, current_index=_mem.settings.scanmode)))
         ret.append(RadioSetting('settings.bcl', 'Busy Channel Lockout',
                    RadioSettingValueBoolean(_mem.settings.bcl)))
         ret.append(RadioSetting('settings.display_ani', 'Display ANI ID',
                    RadioSettingValueBoolean(_mem.settings.display_ani)))
         ret.append(RadioSetting('settings.ani_id', 'ANI ID',
                    RadioSettingValueList(self.ANI_IDS,
-                                         self.ANI_IDS[_mem.settings.ani_id])))
-        ret.append(RadioSetting('settings.alarm_mode', 'Alarm Mode',
-                   RadioSettingValueList(self.ALARMMODES,
-                                         self.ALARMMODES[
-                                             _mem.settings.alarm_mode])))
+                                         current_index=_mem.settings.ani_id)))
+        ret.append(
+                   RadioSetting(
+                       'settings.alarm_mode', 'Alarm Mode',
+                       RadioSettingValueList(
+                           self.ALARMMODES,
+                           current_index=_mem.settings.alarm_mode)))
         ret.append(RadioSetting('settings.alarmsound', 'Alarm Sound',
                    RadioSettingValueBoolean(_mem.settings.alarmsound)))
         ret.append(RadioSetting('settings.fmradio', 'Enable FM Radio',
                    RadioSettingValueList(self.FMRADIO,
-                                         self.FMRADIO[_mem.settings.fmradio])))
+                                         current_index=_mem.settings.fmradio)))
         if RT490_EXPERIMENTAL:
             tmp = _mem.settings.fmpreset / 10.0
             if tmp < 65.0 or tmp > 108.0:
@@ -927,34 +932,43 @@ class RT490Radio(chirp_common.CloneModeRadio):
                                               precision=1)))
         ret.append(RadioSetting('settings.kblock', 'Enable Keyboard Lock',
                    RadioSettingValueBoolean(_mem.settings.kblock)))
-        ret.append(RadioSetting('settings.autolock', 'Autolock Keyboard',
-                   RadioSettingValueList(self.AUTOLOCK_TO,
-                                         self.AUTOLOCK_TO[
-                                             _mem.settings.autolock])))
-        ret.append(RadioSetting('settings.timer_menu_quit', 'Menu Exit Time',
-                   RadioSettingValueList(self.MENUEXIT_TO,
-                                         self.MENUEXIT_TO[
-                                             _mem.settings.timer_menu_quit])))
+        ret.append(
+                   RadioSetting(
+                       'settings.autolock', 'Autolock Keyboard',
+                       RadioSettingValueList(
+                           self.AUTOLOCK_TO,
+                           current_index=_mem.settings.autolock)))
+        ret.append(
+            RadioSetting(
+                'settings.timer_menu_quit', 'Menu Exit Time',
+                RadioSettingValueList(
+                    self.MENUEXIT_TO,
+                    current_index=_mem.settings.timer_menu_quit)))
         ret.append(RadioSetting('settings.enable_gps', 'Enable GPS',
                    RadioSettingValueBoolean(_mem.settings.enable_gps)))
-        ret.append(RadioSetting('settings.scan_dcs', 'CDCSS Save Modes',
-                   RadioSettingValueList(self.SCANDCSMODES,
-                                         self.SCANDCSMODES[
-                                             _mem.settings.scan_dcs])))
+        ret.append(
+                   RadioSetting(
+                       'settings.scan_dcs', 'CDCSS Save Modes',
+                       RadioSettingValueList(
+                           self.SCANDCSMODES,
+                           current_index=_mem.settings.scan_dcs)))
         ret.append(RadioSetting('settings.tailnoiseclear', 'Tail Noise Clear',
                    RadioSettingValueBoolean(_mem.settings.tailnoiseclear)))
-        ret.append(RadioSetting('settings.rptnoiseclear', 'Rpt Noise Clear',
-                   RadioSettingValueList(self.RPTNOISE,
-                                         self.RPTNOISE[
-                                             _mem.settings.rptnoiseclear])))
-        ret.append(RadioSetting('settings.rptnoisedelay', 'Rpt Noise Delay',
-                   RadioSettingValueList(self.RPTNOISE,
-                                         self.RPTNOISE[
-                                             _mem.settings.rptnoisedelay])))
+        ret.append(
+                   RadioSetting(
+                       'settings.rptnoiseclear', 'Rpt Noise Clear',
+                       RadioSettingValueList(
+                           self.RPTNOISE,
+                           current_index=_mem.settings.rptnoiseclear)))
+        ret.append(
+                   RadioSetting(
+                       'settings.rptnoisedelay', 'Rpt Noise Delay',
+                       RadioSettingValueList(
+                           self.RPTNOISE,
+                           current_index=_mem.settings.rptnoisedelay)))
         ret.append(RadioSetting('settings.rpttone', 'Rpt Tone',
                    RadioSettingValueList(self.RPTTONES,
-                                         self.RPTTONES[
-                                             _mem.settings.rpttone])))
+                                         current_index=_mem.settings.rpttone)))
         return ret
 
     def _get_settings_basic(self):
@@ -962,40 +976,49 @@ class RT490Radio(chirp_common.CloneModeRadio):
         ret = RadioSettingGroup('basic', 'Basic')
         ret.append(RadioSetting('settings.squelch', 'Carrier Squelch Level',
                    RadioSettingValueList(self.SQUELCHLVLS,
-                                         self.SQUELCHLVLS[
-                                             _mem.settings.squelch])))
-        ret.append(RadioSetting('settings.savemode', 'Battery Savemode',
-                   RadioSettingValueList(self.SAVEMODES,
-                                         self.SAVEMODES[
-                                             _mem.settings.savemode])))
-        ret.append(RadioSetting('settings.backlight', 'Backlight Timeout',
-                   RadioSettingValueList(self.BACKLIGHT_TO,
-                                         self.BACKLIGHT_TO[
-                                             _mem.settings.backlight])))
+                                         current_index=_mem.settings.squelch)))
+        ret.append(
+            RadioSetting(
+                'settings.savemode', 'Battery Savemode',
+                RadioSettingValueList(
+                    self.SAVEMODES, current_index=_mem.settings.savemode)))
+        ret.append(
+                   RadioSetting(
+                       'settings.backlight', 'Backlight Timeout',
+                       RadioSettingValueList(
+                           self.BACKLIGHT_TO,
+                           current_index=_mem.settings.backlight)))
         ret.append(RadioSetting('settings.timeout', 'Timeout Timer (TOT)',
                    RadioSettingValueList(self.TOT_LIST,
-                                         self.TOT_LIST[
-                                             _mem.settings.timeout])))
+                                         current_index=_mem.settings.timeout)))
         ret.append(RadioSetting('settings.beep', 'Beep',
                    RadioSettingValueBoolean(_mem.settings.beep)))
-        ret.append(RadioSetting('settings.active_channel', 'Active Channel',
-                   RadioSettingValueList(self.CHANNELS,
-                                         self.CHANNELS[
-                                             _mem.settings.active_channel])))
-        ret.append(RadioSetting('settings.cha_disp', 'Channel A Display Mode',
-                   RadioSettingValueList(self.DISPLAYMODES,
-                                         self.DISPLAYMODES[
-                                             _mem.settings.cha_disp])))
-        ret.append(RadioSetting('settings.chb_disp', 'Channel B Display Mode',
-                   RadioSettingValueList(self.DISPLAYMODES,
-                                         self.DISPLAYMODES[
-                                             _mem.settings.chb_disp])))
+        ret.append(
+            RadioSetting(
+                'settings.active_channel', 'Active Channel',
+                RadioSettingValueList(
+                    self.CHANNELS,
+                    current_index=_mem.settings.active_channel)))
+        ret.append(
+                   RadioSetting(
+                       'settings.cha_disp', 'Channel A Display Mode',
+                       RadioSettingValueList(
+                           self.DISPLAYMODES,
+                           current_index=_mem.settings.cha_disp)))
+        ret.append(
+                   RadioSetting(
+                       'settings.chb_disp', 'Channel B Display Mode',
+                       RadioSettingValueList(
+                           self.DISPLAYMODES,
+                           current_index=_mem.settings.chb_disp)))
         ret.append(RadioSetting('settings.roger', 'Roger Beep',
                    RadioSettingValueBoolean(_mem.settings.roger)))
-        ret.append(RadioSetting('settings.powermsg', 'Power Message',
-                   RadioSettingValueList(self.POWERMESSAGES,
-                                         self.POWERMESSAGES[
-                                             _mem.settings.powermsg])))
+        ret.append(
+                   RadioSetting(
+                       'settings.powermsg', 'Power Message',
+                       RadioSettingValueList(
+                           self.POWERMESSAGES,
+                           current_index=_mem.settings.powermsg)))
         ret.append(RadioSetting('settings.rx_time', 'Show RX Time',
                    RadioSettingValueBoolean(_mem.settings.rx_time)))
         return ret
@@ -1299,6 +1322,7 @@ class RT490Radio(chirp_common.CloneModeRadio):
         rf.can_odd_split = True
         rf.has_name = True
         rf.valid_name_length = 12
+        rf.valid_characters = self._valid_chars
         rf.valid_skips = ["", "S"]
         rf.valid_tmodes = ["", "Tone", "TSQL", "DTCS", "Cross"]
         rf.valid_cross_modes = ["Tone->Tone", "DTCS->", "->DTCS", "Tone->DTCS",

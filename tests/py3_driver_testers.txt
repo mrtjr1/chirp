@@ -22,6 +22,7 @@ Alinco_DR06T,+Alinco_DR235T,12-Dec-2022
 Alinco_DR135T,+Alinco_DR235T,12-Dec-2022
 Alinco_DR235T,@kk7ds,12-Dec-2022
 Alinco_DR435T,+Alinco_DR235T,12-Dec-2022
+Alinco_DR735T,@jacobcalvert,03-April-2024
 Anysecu_UV-A37,@KC9HI,5-Jun-2023
 Anysecu_WP-9900,@KC9HI,11-Nov-2022
 Anysecu_AC-580,+Radioddity_GS-5B,17-Mar-2023
@@ -55,6 +56,7 @@ Baofeng_5RM,@vdwel,7-Dec-2023
 Baofeng_5RX,@KC9HI,16-Jan-2024
 Baofeng_BF-1901,@cetinajero,3-Jul-2023
 Baofeng_BF-1904,@cetinajero,3-Jul-2023
+Baofeng_BF-1909,@KC9HI,10-May-2024
 Baofeng_BF-888,@kk7ds,13-Feb-2019
 Baofeng_BF-A58,@KC9HI,3-Dec-2022
 Baofeng_BF-A58S,@KC9HI,3-Dec-2022
@@ -66,6 +68,7 @@ Baofeng_BF-T20FRS,@KC9HI,17-Dec-2023
 Baofeng_BF-T8,@KC9HI,30-Nov-2022
 Baofeng_BF-V8A,@KC9HI,28-Nov-2022
 Baofeng_F-11,+Baofeng_UV-5R,18-Nov-2022
+Baofeng_GM-5RH,@KC9HI,21-Mar-2024
 Baofeng_GT-3WP,@KC9HI,3-Dec-2022
 Baofeng_GT-5R,@KC9HI,18-Nov-2022
 Baofeng_UV-3R,@yarda,26-Sep-2022
@@ -81,6 +84,7 @@ Baofeng_UV-13Pro,@vdwel,21-Feb-2024
 Baofeng_UV-17,@vdwel,27-Nov-2023
 Baofeng_UV-17Pro,@vdwel,27-Nov-2023
 Baofeng_UV-17ProGPS,@vdwel,27-Nov-2023
+Baofeng_UV-25,+Baofeng_UV-17Pro,2-Jun-2024
 Baofeng_UV-B5,@KC9HI,18-Nov-2022
 Baofeng_UV-S9X3,@KC9HI,22-Aug-2023
 Baofeng_W31E,@KC9HI,14-Aug-2023
@@ -245,12 +249,18 @@ Radtel_RT-470,@KC9HI,2-Apr-2023
 Radtel_RT-470L,@KC9HI,5-May-2023
 Radtel_RT-470X,@KC9HI,10-Aug-2023
 Radtel_RT-490,@KC9HI,11-Nov-2023
+Radtel_RT-495,@KC9HI,14-Jun-2024
+Radtel_RT-630,@KC9HI,14-Jun-2024
+Radtel_RT-730,@KC9HI,11-May-2024
 Radtel_T18,@KC9HI,28-Nov-2022
 Retevis_H777S,@KC9HI,22-Dec-2022
 Retevis_H777_Plus,@KC9HI,4-Dec-2022
+Retevis_P2,@KC9HI,15-Jun-2024
+Retevis_P62,@KC9HI,15-Jun-2024
 Retevis_RA685,@KC9HI,19-Nov-2022
 Retevis_RA79,@KC9HI,27-Oct-2023
 Retevis_RA85,@KC9HI,19-Nov-2022
+Retevis_RA87,@KC9HI,16-May-2024
 Retevis_RA89,@KC9HI,23-Nov-2023
 Retevis_RB15,@KC9HI,18-Dec-2022
 Retevis_RB17,@KC9HI,28-Nov-2022
@@ -279,6 +289,7 @@ Retevis_RB629,@KC9HI,24-Dec-2022
 Retevis_RB75,@KC9HI,28-Nov-2022
 Retevis_RB85,@KC9HI,28-Nov-2022
 Retevis_RB87,@KC9HI,10-Mar-2023
+Retevis_RB89,@KC9HI,6-Aug-2024
 Retevis_RT15,@KC9HI,18-Feb-2023
 Retevis_RT16,@KC9HI,30-Nov-2022
 Retevis_RT19,@KC9HI,30-Nov-2022

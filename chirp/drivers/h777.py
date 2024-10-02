@@ -128,9 +128,18 @@ def _h777_enter_programming_mode(radio):
     except:
         raise errors.RadioError("Error communicating with radio")
 
-    if not ident.startswith(b"P3107"):
-        LOG.debug(util.hexprint(ident))
-        raise errors.RadioError("Radio returned unknown identification string")
+    # check if ident is OK
+    itis = False
+    for fp in radio.IDENT:
+        if fp in ident:
+            # got it!
+            itis = True
+
+            break
+
+    if itis is False:
+        LOG.debug("Incorrect model ID, got this:\n\n" + util.hexprint(ident))
+        raise errors.RadioError("Radio identification failed.")
 
     try:
         serial.write(CMD_ACK)
@@ -285,8 +294,8 @@ class H777Radio(chirp_common.CloneModeRadio):
     VENDOR = "Baofeng"
     MODEL = "BF-888"
     PROGRAM_CMD = b'PROGRAM'
+    IDENT = [b"P3107", ]
     BAUD_RATE = 9600
-    NEEDS_COMPAT_SERIAL = False
 
     # TODO: Is it 1 watt?
     POWER_LEVELS = [chirp_common.PowerLevel("Low", watts=1.00),
@@ -399,12 +408,12 @@ class H777Radio(chirp_common.CloneModeRadio):
             mem.empty = True
             return mem
 
-        if _mem.rxfreq.get_raw(asbytes=False) == "\xFF\xFF\xFF\xFF":
+        if _mem.rxfreq.get_raw() == b"\xFF\xFF\xFF\xFF":
             mem.freq = 0
             mem.empty = True
             return mem
 
-        if _mem.txfreq.get_raw(asbytes=False) == "\xFF\xFF\xFF\xFF":
+        if _mem.txfreq.get_raw() == b"\xFF\xFF\xFF\xFF":
             mem.duplex = "off"
             mem.offset = 0
         elif int(_mem.rxfreq) == int(_mem.txfreq):
@@ -490,7 +499,7 @@ class H777Radio(chirp_common.CloneModeRadio):
         rs = RadioSetting("voicelanguage", "Voice language",
                           RadioSettingValueList(
                               VOICE_LIST,
-                              VOICE_LIST[_settings.voicelanguage]))
+                              current_index=_settings.voicelanguage))
         basic.append(rs)
 
         rs = RadioSetting("scan", "Scan",
@@ -501,8 +510,8 @@ class H777Radio(chirp_common.CloneModeRadio):
             rs = RadioSetting("settings2.scanmode", "Scan mode",
                               RadioSettingValueList(
                                   self.SCANMODE_LIST,
-                                  self.SCANMODE_LIST[
-                                      self._memobj.settings2.scanmode]))
+                                  current_index=(
+                                      self._memobj.settings2.scanmode)))
             basic.append(rs)
 
         rs = RadioSetting("vox", "VOX",
@@ -530,7 +539,7 @@ class H777Radio(chirp_common.CloneModeRadio):
             rs = RadioSetting("alarm", "Alarm",
                               RadioSettingValueList(
                                     self.ALARM_LIST,
-                                    self.ALARM_LIST[_settings.alarm]))
+                                    current_index=_settings.alarm))
         else:
             rs = RadioSetting("alarm", "Alarm",
                               RadioSettingValueBoolean(_settings.alarm))
@@ -562,15 +571,15 @@ class H777Radio(chirp_common.CloneModeRadio):
             rs = RadioSetting("settings2.sidekeyfunction", "Side key function",
                               RadioSettingValueList(
                                   self.SIDEKEYFUNCTION_LIST,
-                                  self.SIDEKEYFUNCTION_LIST[
-                                      self._memobj.settings2.sidekeyfunction]))
+                                  current_index=(
+                                      self._memobj.settings2.sidekeyfunction)))
             basic.append(rs)
 
-        rs = RadioSetting("settings2.timeouttimer", "Timeout timer",
-                          RadioSettingValueList(
-                              TIMEOUTTIMER_LIST,
-                              TIMEOUTTIMER_LIST[
-                                  self._memobj.settings2.timeouttimer]))
+        rs = RadioSetting(
+            "settings2.timeouttimer", "Timeout timer",
+            RadioSettingValueList(
+                TIMEOUTTIMER_LIST,
+                current_index=self._memobj.settings2.timeouttimer))
         basic.append(rs)
 
         return top
@@ -695,6 +704,19 @@ class BFM4Radio(H777Radio):
 
 
 @directory.register
+class MT8SRadio(H777Radio):
+    VENDOR = "MaxTalker"
+    MODEL = "MT-8S"
+    ALIASES = []
+    _has_fm = False
+
+    @classmethod
+    def match_model(cls, filedata, filename):
+        # This model is only ever matched via metadata
+        return False
+
+
+@directory.register
 class BF1901Radio(H777Radio):
     VENDOR = "Baofeng"
     MODEL = "BF-1901"
@@ -725,6 +747,32 @@ class BF1904Radio(BF1901Radio):
     VENDOR = "Baofeng"
     MODEL = "BF-1904"
     ALIASES = []
+
+    # TODO: Is it 1 watt?
+    POWER_LEVELS = [chirp_common.PowerLevel("Low", watts=1.00),
+                    chirp_common.PowerLevel("High", watts=10.00)]
+
+    @classmethod
+    def match_model(cls, filedata, filename):
+        # This model is only ever matched via metadata
+        return False
+
+
+@directory.register
+class BF1909Radio(BF1901Radio):
+    VENDOR = "Baofeng"
+    MODEL = "BF-1909"
+    ALIASES = []
+    IDENT = [b"P320h",
+             b"P3107" + b"\xF4" + b"AM",
+             ]
+    _ranges = [
+        (0x0000, 0x0110),
+        (0x0250, 0x0260),
+        (0x02B0, 0x02C0),
+        (0x03C0, 0x03E0),
+    ]
+    _memsize = 0x03F0
 
     # TODO: Is it 1 watt?
     POWER_LEVELS = [chirp_common.PowerLevel("Low", watts=1.00),

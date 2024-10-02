@@ -1091,7 +1091,6 @@ class KGUV9DPlusRadio(chirp_common.CloneModeRadio,
     _model = b"KG-UV9D"
     _rev = b"00"  # default rev for the radio I know about...
     _file_ident = b"kg-uv9d"
-    NEEDS_COMPAT_SERIAL = False
     BAUD_RATE = 19200
     POWER_LEVELS = [chirp_common.PowerLevel("L", watts=1),
                     chirp_common.PowerLevel("M", watts=2),
@@ -1653,27 +1652,27 @@ class KGUV9DPlusRadio(chirp_common.CloneModeRadio,
             RadioSetting("s_mute",
                          "SubFreq Mute (Menu 60)",
                          RadioSettingValueList(S_MUTE_LIST,
-                                               S_MUTE_LIST[s.s_mute])))
+                                               current_index=s.s_mute)))
         cf.append(
             RadioSetting("tot",
                          "Transmit timeout Timer (Menu 10)",
                          RadioSettingValueList(TIMEOUT_LIST,
-                                               TIMEOUT_LIST[s.tot])))
+                                               current_index=s.tot)))
         cf.append(
             RadioSetting("toa",
                          "Transmit Timeout Alarm (Menu 11)",
                          RadioSettingValueList(TOA_LIST,
-                                               TOA_LIST[s.toa])))
+                                               current_index=s.toa)))
         cf.append(
             RadioSetting("ptt_id",
                          "PTT Caller ID mode (Menu 23)",
                          RadioSettingValueList(PTTID_LIST,
-                                               PTTID_LIST[s.ptt_id])))
+                                               current_index=s.ptt_id)))
         cf.append(
             RadioSetting("id_dly",
                          "Caller ID Delay time (Menu 25)",
                          RadioSettingValueList(ID_DLY_LIST,
-                                               ID_DLY_LIST[s.id_dly])))
+                                               current_index=s.id_dly)))
         cf.append(RadioSetting("voice_sw",
                                "Voice Guide (Menu 12)",
                                RadioSettingValueBoolean(s.voice_sw)))
@@ -1684,18 +1683,18 @@ class KGUV9DPlusRadio(chirp_common.CloneModeRadio,
             RadioSetting("s_tone",
                          "Side Tone (Menu 36)",
                          RadioSettingValueList(S_TONES,
-                                               S_TONES[s.s_tone])))
+                                               current_index=s.s_tone)))
         cf.append(
             RadioSetting("ring_time",
                          "Ring Time (Menu 26)",
                          RadioSettingValueList(
                              LIST_OFF_10,
-                             LIST_OFF_10[s.ring_time])))
+                             current_index=s.ring_time)))
         cf.append(
             RadioSetting("roger",
                          "Roger Beep (Menu 9)",
                          RadioSettingValueList(ROGER_LIST,
-                                               ROGER_LIST[s.roger])))
+                                               current_index=s.roger)))
         cf.append(RadioSetting("blcdsw",
                                "Backlight (Menu 41)",
                                RadioSettingValueBoolean(s.blcdsw)))
@@ -1703,7 +1702,7 @@ class KGUV9DPlusRadio(chirp_common.CloneModeRadio,
             RadioSetting("abr",
                          "Auto Backlight Time (Menu 1)",
                          RadioSettingValueList(BACKLIGHT_LIST,
-                                               BACKLIGHT_LIST[s.abr])))
+                                               current_index=s.abr)))
         cf.append(
             RadioSetting("abr_lvl",
                          "Backlight Brightness (Menu 27)",
@@ -1717,7 +1716,7 @@ class KGUV9DPlusRadio(chirp_common.CloneModeRadio,
             RadioSetting("lock_m",
                          "Keypad Lock Mode (Menu 35)",
                          RadioSettingValueList(LOCK_MODES,
-                                               LOCK_MODES[s.lock_m])))
+                                               current_index=s.lock_m)))
         cf.append(RadioSetting("auto_lk",
                                "Keypad Autolock (Menu 34)",
                                RadioSettingValueBoolean(s.auto_lk)))
@@ -1732,27 +1731,27 @@ class KGUV9DPlusRadio(chirp_common.CloneModeRadio,
             RadioSetting("dtmf_st",
                          "DTMF Sidetone (Menu 22)",
                          RadioSettingValueList(DTMFST_LIST,
-                                               DTMFST_LIST[s.dtmf_st])))
+                                               current_index=s.dtmf_st)))
         cf.append(RadioSetting("sc_qt",
                                "Scan QT Save Mode (Menu 38)",
                                RadioSettingValueList(
                                    SCQT_LIST,
-                                   SCQT_LIST[s.sc_qt])))
+                                   current_index=s.sc_qt)))
         cf.append(
             RadioSetting("apo_tmr",
                          "Automatic Power-off (Menu 39)",
                          RadioSettingValueList(APO_TIMES,
-                                               APO_TIMES[s.apo_tmr])))
+                                               current_index=s.apo_tmr)))
         cf.append(  # VOX "guard" is really VOX trigger audio level
             RadioSetting("vox_grd",
                          "VOX level (Menu 7)",
                          RadioSettingValueList(VOX_GRDS,
-                                               VOX_GRDS[s.vox_grd])))
+                                               current_index=s.vox_grd)))
         cf.append(
             RadioSetting("vox_dly",
                          "VOX Delay (Menu 37)",
                          RadioSettingValueList(VOX_DLYS,
-                                               VOX_DLYS[s.vox_dly])))
+                                               current_index=s.vox_dly)))
         cf.append(RadioSetting("bledsw",
                                "Receive LED (Menu 42)",
                                RadioSettingValueBoolean(s.bledsw)))
@@ -1762,8 +1761,7 @@ class KGUV9DPlusRadio(chirp_common.CloneModeRadio,
                                    "Screen Mode (Menu 62)",
                                    RadioSettingValueList(
                                          SCREEN_MODE_LIST,
-                                         SCREEN_MODE_LIST[
-                                             sm.screen_mode])))
+                                         current_index=sm.screen_mode)))
         if (self.MODEL == "KG-UV9PX" or self.MODEL == "KG-UV9GX"):
             langlst = LANGUAGE_LIST2
         else:
@@ -1772,7 +1770,7 @@ class KGUV9DPlusRadio(chirp_common.CloneModeRadio,
             RadioSetting("lang",
                          "Menu Language (Menu 14)",
                          RadioSettingValueList(langlst,
-                                               langlst[s.lang])))
+                                               current_index=s.lang)))
 
         if (self.MODEL == "KG-UV9PX" or self.MODEL == "KG-UV9GX"):
             ponmsglst = PONMSG_LIST2
@@ -1781,7 +1779,7 @@ class KGUV9DPlusRadio(chirp_common.CloneModeRadio,
         cf.append(RadioSetting("ponmsg",
                                "Poweron message (Menu 40)",
                                RadioSettingValueList(
-                                   ponmsglst, ponmsglst[s.ponmsg])))
+                                   ponmsglst, current_index=s.ponmsg)))
         return cf
 
     def _repeater_tab(self):
@@ -1795,7 +1793,7 @@ class KGUV9DPlusRadio(chirp_common.CloneModeRadio,
                          "Radio Mode (Menu 43)",
                          RadioSettingValueList(
                              RPTMODE_LIST,
-                             RPTMODE_LIST[s.type_set])))
+                             current_index=s.type_set)))
         cf.append(RadioSetting("rpt_ptt",
                                "Repeater PTT (Menu 45)",
                                RadioSettingValueBoolean(s.rpt_ptt)))
@@ -1806,7 +1804,7 @@ class KGUV9DPlusRadio(chirp_common.CloneModeRadio,
             RadioSetting("rpt_kpt",
                          "Repeater Hold Time (Menu 46)",
                          RadioSettingValueList(RPT_KPTS,
-                                               RPT_KPTS[s.rpt_kpt])))
+                                               current_index=s.rpt_kpt)))
         cf.append(RadioSetting("rpt_rct",
                                "Repeater Receipt Tone (Menu 47)",
                                RadioSettingValueBoolean(s.rpt_rct)))
@@ -1869,7 +1867,7 @@ class KGUV9DPlusRadio(chirp_common.CloneModeRadio,
             RadioSetting("dtmf_tx",
                          "DTMF Tx Duration",
                          RadioSettingValueList(DTMF_TIMES,
-                                               DTMF_TIMES[s.dtmf_tx])))
+                                               current_index=s.dtmf_tx)))
         cid = self._memobj.my_callid
         my_callid = RadioSettingValueString(3, 6,
                                             self.callid2str(cid.code), False)
@@ -1888,7 +1886,7 @@ class KGUV9DPlusRadio(chirp_common.CloneModeRadio,
             RadioSetting("settings.save_m",
                          "Save Mode  (Menu 2)",
                          RadioSettingValueList(SAVE_MODES,
-                                               SAVE_MODES[s.save_m])))
+                                               current_index=s.save_m)))
         for i in range(0, 4):
             sm = self._memobj.save[i]
             wake = RadioSettingValueInteger(0, 18000, sm.wake * 10, 1)
@@ -1918,13 +1916,13 @@ class KGUV9DPlusRadio(chirp_common.CloneModeRadio,
 
             val = RadioSettingValueList(
                                 TDR_LIST,
-                                TDR_LIST[s.tdr])
+                                current_index=s.tdr)
             val.set_mutable(True)
             cf.append(RadioSetting("tdr", "TDR", val))
 
             val = RadioSettingValueList(
                                 ACTIVE_AREA_LIST,
-                                ACTIVE_AREA_LIST[s.act_area])
+                                current_index=s.act_area)
             val.set_mutable(True)
             cf.append(RadioSetting("act_area", "Active Receiver(BAND)", val))
 
@@ -2099,14 +2097,14 @@ class KGUV9DPlusRadio(chirp_common.CloneModeRadio,
         bf.append(RadioSetting(prefix + ".qt",
                                "Mute Mode (Menu 21)",
                                RadioSettingValueList(SPMUTE_LIST,
-                                                     SPMUTE_LIST[c.qt])))
+                                                     current_index=c.qt)))
         bf.append(RadioSetting(prefix + ".scan",
                                "Scan this (Menu 48)",
                                RadioSettingValueBoolean(c.scan)))
         bf.append(RadioSetting(prefix + ".pwr",
                                "Power (Menu 5)",
                                RadioSettingValueList(
-                                   POWER_LIST, POWER_LIST[c.pwr])))
+                                   POWER_LIST, current_index=c.pwr)))
         bf.append(RadioSetting(prefix + ".mod",
                                "AM Modulation (Menu 54)",
                                RadioSettingValueBoolean(c.mod)))
@@ -2114,12 +2112,12 @@ class KGUV9DPlusRadio(chirp_common.CloneModeRadio,
                                "FM Deviation (Menu 4)",
                                RadioSettingValueList(
                                    BANDWIDTH_LIST,
-                                   BANDWIDTH_LIST[c.fm_dev])))
+                                   current_index=c.fm_dev)))
         bf.append(
             RadioSetting(prefix + ".shift",
                          "Frequency Shift (Menu 6)",
                          RadioSettingValueList(OFFSET_LIST,
-                                               OFFSET_LIST[c.shift])))
+                                               current_index=c.shift)))
         return bf
 
     def _area_tab(self, area):
@@ -2155,7 +2153,7 @@ class KGUV9DPlusRadio(chirp_common.CloneModeRadio,
                          "Workmode",
                          RadioSettingValueList(
                              WORKMODE_LIST,
-                             WORKMODE_LIST[c.w_mode])))
+                             current_index=c.w_mode)))
         af.append(RadioSetting(prefix + ".w_chan",
                                "Channel",
                                RadioSettingValueInteger(1, 999,
@@ -2165,7 +2163,7 @@ class KGUV9DPlusRadio(chirp_common.CloneModeRadio,
                          "Scan Group (Menu 49)",
                          RadioSettingValueList(
                              SCANGRP_LIST,
-                             SCANGRP_LIST[c.scan_grp])))
+                             current_index=c.scan_grp)))
         af.append(RadioSetting(prefix + ".bcl",
                                "Busy Channel Lock-out (Menu 15)",
                                RadioSettingValueBoolean(c.bcl)))
@@ -2173,29 +2171,29 @@ class KGUV9DPlusRadio(chirp_common.CloneModeRadio,
             RadioSetting(prefix + ".sql",
                          "Squelch Level (Menu 8)",
                          RadioSettingValueList(LIST_0_9,
-                                               LIST_0_9[c.sql])))
+                                               current_index=c.sql)))
         af.append(
             RadioSetting(prefix + ".cset",
                          "Call ID Group (Menu 52)",
                          RadioSettingValueList(LIST_1_20,
-                                               LIST_1_20[c.cset])))
+                                               current_index=c.cset)))
         af.append(
             RadioSetting(prefix + ".step",
                          "Frequency Step (Menu 3)",
                          RadioSettingValueList(
-                             self._step_list, self._step_list[c.step])))
+                             self._step_list, current_index=c.step)))
         af.append(
             RadioSetting(prefix + ".scan_mode",
                          "Scan Mode (Menu 20)",
                          RadioSettingValueList(
                              SCANMODE_LIST,
-                             SCANMODE_LIST[c.scan_mode])))
+                             current_index=c.scan_mode)))
         af.append(
             RadioSetting(prefix + ".scan_range",
                          "Scan Range (Menu 50)",
                          RadioSettingValueList(
                              SCANRANGE_LIST,
-                             SCANRANGE_LIST[c.scan_range])))
+                             current_index=c.scan_range)))
         st = RadioSettingValueString(0, 15,
                                      short2freq(scan_rng.scan_st))
         rs = RadioSetting("settings.%s.scan_st" % area,
@@ -2239,18 +2237,18 @@ class KGUV9DPlusRadio(chirp_common.CloneModeRadio,
                                "PF1 Key function (Menu 55)",
                                RadioSettingValueList(
                                    pfkey1,
-                                   pfkey1[s.pf1])))
+                                   current_index=s.pf1)))
         kf.append(RadioSetting("settings.pf2",
                                "PF2 Key function (Menu 56)",
                                RadioSettingValueList(
                                    pfkey2,
-                                   pfkey2[s.pf2])))
+                                   current_index=s.pf2)))
 
         kf.append(RadioSetting("settings.pf3",
                                "PF3 Key function (Menu 57)",
                                RadioSettingValueList(
                                    pfkey3,
-                                   pfkey3[s.pf3])))
+                                   current_index=s.pf3)))
         return kf
 
     def _fl_tab(self):
@@ -2474,7 +2472,6 @@ class KGUV9PXRadio(KGUV9DPlusRadio):
     _model = b"KG-UV9D"
     _rev = b"02"  # default rev for the radio I know about...
     _file_ident = b"kg-uv9px"
-    NEEDS_COMPAT_SERIAL = False
     _valid_steps = STEPS
     _step_list = STEP_LIST
 
@@ -2609,7 +2606,7 @@ class KGUV9PXRadio(KGUV9DPlusRadio):
                          "Workmode",
                          RadioSettingValueList(
                              WORKMODE_LIST,
-                             WORKMODE_LIST[c.w_mode])))
+                             current_index=c.w_mode)))
         af.append(RadioSetting(prefix + ".w_chan",
                                "Channel",
                                RadioSettingValueInteger(1, 999,
@@ -2619,7 +2616,7 @@ class KGUV9PXRadio(KGUV9DPlusRadio):
                          "Scan Group (Menu 49)",
                          RadioSettingValueList(
                              SCANGRP_LIST,
-                             SCANGRP_LIST[c.scan_grp])))
+                             current_index=c.scan_grp)))
         af.append(RadioSetting(prefix + ".bcl",
                                "Busy Channel Lock-out (Menu 15)",
                                RadioSettingValueBoolean(c.bcl)))
@@ -2627,29 +2624,29 @@ class KGUV9PXRadio(KGUV9DPlusRadio):
             RadioSetting(prefix + ".sql",
                          "Squelch Level (Menu 8)",
                          RadioSettingValueList(LIST_0_9,
-                                               LIST_0_9[c.sql])))
+                                               current_index=c.sql)))
         af.append(
             RadioSetting(prefix + ".cset",
                          "Call ID Group (Menu 52)",
                          RadioSettingValueList(LIST_1_20,
-                                               LIST_1_20[c.cset])))
+                                               current_index=c.cset)))
         af.append(
             RadioSetting(prefix + ".step",
                          "Frequency Step (Menu 3)",
                          RadioSettingValueList(
-                             self._step_list, self._step_list[c.step])))
+                             self._step_list, current_index=c.step)))
         af.append(
             RadioSetting(prefix + ".scan_mode",
                          "Scan Mode (Menu 20)",
                          RadioSettingValueList(
                              SCANMODE_LIST,
-                             SCANMODE_LIST[c.scan_mode])))
+                             current_index=c.scan_mode)))
         af.append(
             RadioSetting(prefix + ".scan_range",
                          "Scan Range (Menu 50)",
                          RadioSettingValueList(
                              SCANRANGE_LIST,
-                             SCANRANGE_LIST[c.scan_range])))
+                             current_index=c.scan_range)))
         st = RadioSettingValueString(0, 15,
                                      short2freq(scan_rng.scan_st))
         rs = RadioSetting("settings.%s.scan_st" % area,
@@ -2748,14 +2745,14 @@ class KGUV9PXRadio(KGUV9DPlusRadio):
         bf.append(RadioSetting(prefix + ".qt",
                                "Mute Mode (Menu 21)",
                                RadioSettingValueList(SPMUTE_LIST,
-                                                     SPMUTE_LIST[c.qt])))
+                                                     current_index=c.qt)))
         bf.append(RadioSetting(prefix + ".scan",
                                "Scan this (Menu 48)",
                                RadioSettingValueBoolean(c.scan)))
         bf.append(RadioSetting(prefix + ".pwr",
                                "Power (Menu 5)",
                                RadioSettingValueList(
-                                   POWER_LIST, POWER_LIST[c.pwr])))
+                                   POWER_LIST, current_index=c.pwr)))
         bf.append(RadioSetting(prefix + ".mod",
                                "AM Modulation (Menu 54)",
                                RadioSettingValueBoolean(c.mod)))
@@ -2763,12 +2760,12 @@ class KGUV9PXRadio(KGUV9DPlusRadio):
                                "FM Deviation (Menu 4)",
                                RadioSettingValueList(
                                    BANDWIDTH_LIST,
-                                   BANDWIDTH_LIST[c.fm_dev])))
+                                   current_index=c.fm_dev)))
         bf.append(
             RadioSetting(prefix + ".shift",
                          "Frequency Shift (Menu 6)",
                          RadioSettingValueList(OFFSET_LIST,
-                                               OFFSET_LIST[c.shift])))
+                                               current_index=c.shift)))
         return bf
 
     def _fl_tab(self):
@@ -2906,7 +2903,6 @@ class KGUV9GXRadio(KGUV9PXRadio):
     MODEL = "KG-UV9GX"
     _model = b"KG-UV9D"
     _rev = b"02"  # default rev for the radio I know about...
-    NEEDS_COMPAT_SERIAL = False
     _valid_steps = STEPS
     _step_list = STEP_LIST
 
@@ -2925,7 +2921,6 @@ class KGUV9KRadio(KGUV9DPlusRadio):
     _model = b"KG-UV9D"
     _file_ident = b"kg-uv9k"
     _rev = b"02"  # default rev for the radio I know about...
-    NEEDS_COMPAT_SERIAL = False
     _step_list = STEP_LIST_9K
     _valid_steps = STEPS_9K
 
@@ -2944,7 +2939,6 @@ class KGUV9GProRadio(KGUV9DPlusRadio):
     _model = b"KG-UV9D"
     _file_ident = b"kg-uv9gpro"
     _rev = b"02"  # default rev for the radio I know about...
-    NEEDS_COMPAT_SERIAL = False
     _step_list = STEP_LIST
     _valid_steps = STEPS
 

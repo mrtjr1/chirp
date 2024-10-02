@@ -69,7 +69,6 @@ VOICE_MODE_LIST = ["Compander", "Scrambler", "None"]
 class TYTUV3R25Radio(TYTUV3RRadio):
     MODEL = "TH-UV3R-25"
     _memsize = 2864
-    NEEDS_COMPAT_SERIAL = False
 
     POWER_LEVELS = [chirp_common.PowerLevel("High", watts=2.00),
                     chirp_common.PowerLevel("Low", watts=0.80)]
@@ -148,7 +147,7 @@ class TYTUV3R25Radio(TYTUV3RRadio):
         rs = RadioSetting("voice_mode", "Voice Mode",
                           RadioSettingValueList(
                               VOICE_MODE_LIST,
-                              VOICE_MODE_LIST[_mem.voice_mode-1]))
+                              current_index=_mem.voice_mode-1))
         mem.extra.append(rs)
 
         return mem

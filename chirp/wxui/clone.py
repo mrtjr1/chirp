@@ -19,6 +19,7 @@ import platform
 import re
 import textwrap
 import threading
+import webbrowser
 
 import serial
 from serial.tools import list_ports
@@ -40,6 +41,10 @@ HELPME = _('Help Me...')
 CUSTOM = _('Custom...')
 
 
+def is_prolific_warning(string):
+    return 'PL2303' in string and 'CONTACT YOUR SUPPLIER' in string
+
+
 def get_fakes():
     return {
         'Fake NOP': developer.FakeSerial(),
@@ -47,6 +52,7 @@ def get_fakes():
         'Fake F7E': fake.FakeKenwoodSerial(),
         'Fake UV17': fake.FakeUV17Serial(),
         'Fake UV17Pro': fake.FakeUV17ProSerial(),
+        'Fake AT778': developer.FakeAT778(),
     }
 
 
@@ -242,6 +248,38 @@ def port_sort_key(port):
     return key
 
 
+def model_value(rclass):
+    return ('%s %s' % (rclass.MODEL, rclass.VARIANT)).strip()
+
+
+def detected_value(parent_rclass, rclass):
+    """Try to calculate a label for detected classes.
+
+    This should be short and only represent the difference between them (like
+    a VARIANT or different MODEL).
+    """
+    if parent_rclass.MODEL != rclass.MODEL:
+        # If the model is different, use that
+        label = rclass.MODEL
+        # If the detected class is a modified MODEL (i.e. 'RT95' and 'RT95 VOX'
+        # then strip off the prefix and the delimiter, if any.
+        if label.startswith(parent_rclass.MODEL):
+            label = label.replace(parent_rclass.MODEL, '').strip(' -_')
+    else:
+        # Assume the VARIANT is the distinguisher
+        label = rclass.VARIANT
+
+    # In case the detected class is a different vendor, prefix that
+    if parent_rclass.VENDOR != rclass.VENDOR:
+        label = '%s %s' % (rclass.VENDOR, label)
+
+    label = label.strip()
+    if not label:
+        LOG.error('Calculated blank detected value of %s from %s',
+                  rclass, parent_rclass)
+    return label
+
+
 # Make this global so it sticks for a session
 CUSTOM_PORTS = []
 
@@ -279,7 +317,8 @@ class ChirpCloneDialog(wx.Dialog):
         _add_grid(_('Vendor'), self._vendor)
         self.Bind(wx.EVT_CHOICE, self._selected_vendor, self._vendor)
 
-        self._model = wx.Choice(self, choices=[])
+        self._model_choices = []
+        self._model = wx.Choice(self, choices=self._model_choices)
         _add_grid(_('Model'), self._model)
         self.Bind(wx.EVT_CHOICE, self._selected_model, self._model)
 
@@ -291,6 +330,11 @@ class ChirpCloneDialog(wx.Dialog):
         vbox.Add(grid, proportion=1,
                  flag=wx.TOP | wx.BOTTOM | wx.EXPAND,
                  border=20)
+        self.model_msg = wx.StaticText(
+            self,
+            label='',
+            style=(wx.ALIGN_CENTER_HORIZONTAL | wx.ST_NO_AUTORESIZE |
+                   wx.ELLIPSIZE_END))
         self.status_msg = wx.StaticText(
             self, label='',
             style=(wx.ALIGN_CENTER_HORIZONTAL | wx.ST_NO_AUTORESIZE |
@@ -300,6 +344,9 @@ class ChirpCloneDialog(wx.Dialog):
                  flag=wx.EXPAND | wx.BOTTOM)
         vbox.Add(self.gauge, flag=wx.EXPAND | wx.RIGHT | wx.LEFT, border=10,
                  proportion=0)
+        vbox.Add(self.model_msg,
+                 border=5, proportion=0,
+                 flag=wx.EXPAND | wx.BOTTOM)
         vbox.Add(wx.StaticLine(self), flag=wx.EXPAND | wx.ALL, border=5)
         vbox.Add(bs, flag=wx.ALL, border=10)
         self.SetSizer(vbox)
@@ -310,7 +357,7 @@ class ChirpCloneDialog(wx.Dialog):
             if (not issubclass(rclass, chirp_common.CloneModeRadio) and
                     not issubclass(rclass, chirp_common.LiveRadio)):
                 continue
-            if (getattr(rclass, '_DETECTED_MODEL', False) and
+            if (getattr(rclass, '_DETECTED_BY', None) and
                     not allow_detected_models):
                 continue
             self._vendors[rclass.VENDOR].append(rclass)
@@ -324,7 +371,9 @@ class ChirpCloneDialog(wx.Dialog):
             self.select_vendor_model(CONF.get('last_vendor', 'state'),
                                      CONF.get('last_model', 'state'))
         except ValueError:
-            LOG.warning('Last vendor/model not found')
+            LOG.warning('Last vendor/model (%s/%s) not found',
+                        CONF.get('last_vendor', 'state'),
+                        CONF.get('last_model', 'state'))
 
         self.SetMinSize((400, 200))
         self.Fit()
@@ -424,6 +473,18 @@ class ChirpCloneDialog(wx.Dialog):
             return
         self.set_ports(after, select=found.device)
 
+    def _prolific_assist(self, event):
+        r = wx.MessageBox(
+            _('Your Prolific-based USB device will not work without '
+              'reverting to an older version of the driver. Visit the '
+              'CHIRP website to read more about how to resolve this?'),
+            _('Prolific USB device'),
+            style=wx.YES | wx.NO | wx.YES_DEFAULT, parent=self)
+        if r == wx.YES:
+            webbrowser.open(
+                'https://chirpmyradio.com/projects/chirp/wiki/'
+                'ProlificDriverDeprecation')
+
     def _add_aliases(self, rclass):
         for alias in rclass.ALIASES:
             class DynamicRadioAlias(rclass):
@@ -443,11 +504,10 @@ class ChirpCloneDialog(wx.Dialog):
         self.FindWindowById(wx.ID_OK).Disable()
 
     def _persist_choices(self):
-        CONF.set('last_vendor', self._vendor.GetStringSelection(), 'state')
-        CONF.set('last_model', self._model.GetStringSelection(), 'state')
-        CONF.set('last_port', self.get_selected_port(), 'state')
+        raise NotImplementedError()
 
     def _selected_port(self, event):
+        okay_btn = self.FindWindowById(self.GetAffirmativeId())
         if self._port.GetStringSelection() == CUSTOM:
             port = wx.GetTextFromUser(_('Enter custom port:'),
                                       _('Custom Port'),
@@ -459,12 +519,27 @@ class ChirpCloneDialog(wx.Dialog):
         elif self._port.GetStringSelection() == HELPME:
             self._port_assist(event)
             return
+        elif is_prolific_warning(self._port.GetStringSelection()):
+            self._prolific_assist(event)
+            okay_btn.Enable(False)
+            return
         self._persist_choices()
+        okay_btn.Enable(True)
 
     def _select_vendor(self, vendor):
-        models = [('%s %s' % (x.MODEL, x.VARIANT)).strip()
-                  for x in self._vendors[vendor]]
-        self._model.Set(models)
+        display_models = []
+        actual_models = []
+        for rclass in self._vendors[vendor]:
+            display = model_value(rclass)
+            actual_models.append(display)
+            detected = ','.join(detected_value(rclass, x) for x in
+                                rclass.detected_models(include_self=False))
+            if detected:
+                display += ' (+ %s)' % detected
+            display_models.append(display)
+
+        self._model_choices = actual_models
+        self._model.Set(display_models)
         self._model.SetSelection(0)
 
     def _selected_vendor(self, event):
@@ -477,7 +552,7 @@ class ChirpCloneDialog(wx.Dialog):
     def select_vendor_model(self, vendor, model):
         self._vendor.SetSelection(self._vendor.GetItems().index(vendor))
         self._select_vendor(vendor)
-        self._model.SetSelection(self._model.GetItems().index(model))
+        self._model.SetSelection(self._model_choices.index(model))
 
     def _status(self, status):
         def _safe_status():
@@ -523,6 +598,7 @@ class ChirpDownloadDialog(ChirpCloneDialog):
         super(ChirpDownloadDialog, self)._selected_model(event)
         rclass = self.get_selected_rclass()
         prompts = rclass.get_prompts()
+        self.model_msg.SetLabel('')
         if prompts.experimental:
             d = ChirpRadioPromptDialog(
                 self,
@@ -593,6 +669,9 @@ class ChirpDownloadDialog(ChirpCloneDialog):
             self.fail(_('Internal driver error'))
             return
 
+        self.model_msg.SetLabel('%s %s %s' % (
+            rclass.VENDOR, rclass.MODEL, rclass.VARIANT))
+
         try:
             self._radio = rclass(serial)
         except Exception as e:
@@ -615,6 +694,13 @@ class ChirpDownloadDialog(ChirpCloneDialog):
         self._clone_thread = CloneThread(self._radio, self, 'sync_in')
         self._clone_thread.start()
 
+    def _persist_choices(self):
+        # On download, persist the selections from the actual UI boxes
+        CONF.set('last_vendor', self._vendor.GetStringSelection(), 'state')
+        CONF.set('last_model', self._model_choices[self._model.GetSelection()],
+                 'state')
+        CONF.set('last_port', self.get_selected_port(), 'state')
+
 
 class ChirpUploadDialog(ChirpCloneDialog):
     def __init__(self, radio, *a, **k):
@@ -622,9 +708,7 @@ class ChirpUploadDialog(ChirpCloneDialog):
                                                 **k)
         self._radio = radio
 
-        self.select_vendor_model(
-            self._radio.VENDOR,
-            ('%s %s' % (self._radio.MODEL, self._radio.VARIANT)).strip())
+        self.select_vendor_model(self._radio.VENDOR, model_value(self._radio))
         self.disable_model_select()
 
         if isinstance(self._radio, chirp_common.LiveRadio):
@@ -689,3 +773,13 @@ class ChirpUploadDialog(ChirpCloneDialog):
 
         self._clone_thread = CloneThread(self._radio, self, 'sync_out')
         self._clone_thread.start()
+
+    def _persist_choices(self):
+        # On upload, we may have a detected-only subclass, which won't be
+        # selectable normally. If so, use the detected_by instead of the
+        # actual driver
+        parent = getattr(self._radio, '_DETECTED_BY', None)
+        model = model_value(parent or self._radio)
+        CONF.set('last_vendor', self._vendor.GetStringSelection(), 'state')
+        CONF.set('last_model', model, 'state')
+        CONF.set('last_port', self.get_selected_port(), 'state')

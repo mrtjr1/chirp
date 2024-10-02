@@ -13,6 +13,8 @@ Baiston:
 - alt: Baofeng BF-888
   model: BST-2100
 Baofeng/Pofung:
+- alt: 5RM
+  model: Baofeng AR-5RM
 - alt: BF-1901
   model: Baofeng BF-1902
 - alt: BF-1901
@@ -25,6 +27,10 @@ Baofeng/Pofung:
   model: AR-152
 - alt: UV-5R
   model: B-580T
+- alt: UV-25
+  model: BF-18H
+- alt: UV-25
+  model: BF-18L
 - alt: BF-888
   model: BF-88E
   #- alt: BF/T1
@@ -95,6 +101,8 @@ Baofeng/Pofung:
   model: P11UV
 - alt: Radioddity UV-5G
   model: UV-5G
+- alt: Baofeng GM-5RH
+  model: UV-5G Plus
 - alt: BF-F8HP
   model: UV-5R HTQ
 - alt: BF-F8HP
@@ -121,6 +129,8 @@ Baofeng/Pofung:
   model: UV-5RE, UV-5RE+
 - alt: UV-5R
   model: UV-5RG, RK, RQ, RS, RT, RU
+- alt: Baofeng 5RM
+  model: UV-5RH Pro Max
 - alt: BF-F8HP
   model: UV-5RHP
 - alt: Radioddity UV-5RX3
@@ -171,6 +181,9 @@ Baofeng/Pofung:
   variant: 'tri-band: '
 - alt: UV-82HP
   model: UV-X9
+BTECH:
+- alt: Baofeng BF-F8HP-PRO
+  model: BF-F8HP-PRO
 Cignus:
 - alt: Baofeng UV-5R
   model: UV-85
@@ -195,13 +208,16 @@ Jianpai:
   model: FT-UV78
 - alt: Abbree AR-63
   model: G63
+KSUN:
+- alt: Quansheng UV-K5
+  model: UV60D
 Marui:
 - alt: TYT TH-UV88
   model: MR-UV1
 Midland:
 - alt: Puxing PX-777
   model: CT-210
--My Emergency Radio:
+My Emergency Radio:
 - alt: TYT TH-UV88
   model: MYEMR1
 NKTech:
@@ -216,9 +232,23 @@ R&L Electronics:
 Radioddity:
 - alt: Radioddity UV-5G
   model: UV-5X
+- alt: AnyTone 5888UV
+  model: DB50
 Radtel:
 - alt: Retevis RT22
   model: RT-10
+- alt: Abbree AR-730
+  model: RT-420
+- alt: Quansheng UV-K5
+  model: RT-590
+- alt: Quansheng UV-K5
+  model: RT-600
+- alt: Abbree AR-F5
+  model: RT-610
+- alt: Abbree AR-518
+  model: RT-850
+- alt: Ruyage UV58Plus
+  model: RT-890
 Retevis:
 - alt: Retevis H777 Plus
   model: H777 (FRS)
@@ -232,9 +262,6 @@ Retevis:
   model: RB27V (full band support)
 - alt: Retevis RB27
   model: RB627B (full band support)
-Rugged Radios:
-- alt: Baofeng UV-5R
-  model: RH5R, RH5R-V2
 Ruyage:
 - alt: Abbree AR-518
   model: UV58
@@ -318,6 +345,8 @@ Quansheng:
   model: UV-K6
 - alt: UV-K5
   model: UV-K5(8)
+- alt: UV-K5
+  model: UV-K5(99)
 - alt: UV-K5
   model: UV-5R Plus
 Powerful:

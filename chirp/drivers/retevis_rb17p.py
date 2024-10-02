@@ -226,7 +226,6 @@ class RB17P_Base(chirp_common.CloneModeRadio):
     VENDOR = "Retevis"
     MODEL = "RB17P Base"
     BAUD_RATE = 9600
-    NEEDS_COMPAT_SERIAL = False
     BLOCK_SIZE = 0x40
 
     VALID_BANDS = [(400000000, 470000000)]
@@ -358,7 +357,7 @@ class RB17P_Base(chirp_common.CloneModeRadio):
 
         mem.extra = RadioSettingGroup("Extra", "extra")
         rs = RadioSetting("bcl", "Busy Channel Lockout",
-                          RadioSettingValueList(BCL, BCL[_mem.bcl]))
+                          RadioSettingValueList(BCL, current_index=_mem.bcl))
         mem.extra.append(rs)
         rs = RadioSetting("compander", "Compander",
                           RadioSettingValueBoolean(_mem.compander))
@@ -458,7 +457,7 @@ class RB17P_Base(chirp_common.CloneModeRadio):
         rs = RadioSetting("workmode", "Work Mode",
                           RadioSettingValueList(
                               WORKMODE_LIST,
-                              WORKMODE_LIST[(_settings.workmode) - 1]))
+                              current_index=(_settings.workmode) - 1))
         basic.append(rs)
 
         # Menu 04 - Squelch
@@ -471,7 +470,7 @@ class RB17P_Base(chirp_common.CloneModeRadio):
         rs = RadioSetting("batterysave", "Battery Save",
                           RadioSettingValueList(
                               BATTERYSAVE_LIST,
-                              BATTERYSAVE_LIST[_settings.batterysave]))
+                              current_index=_settings.batterysave))
         basic.append(rs)
 
         # Menu 06 - Dual Watch
@@ -483,7 +482,7 @@ class RB17P_Base(chirp_common.CloneModeRadio):
         rs = RadioSetting("backlight", "Backlight Duration",
                           RadioSettingValueList(
                               BACKLIGHT_LIST,
-                              BACKLIGHT_LIST[_settings.backlight]))
+                              current_index=_settings.backlight))
         basic.append(rs)
 
         # Menu 09 - Beep Tone
@@ -500,8 +499,7 @@ class RB17P_Base(chirp_common.CloneModeRadio):
         rs = RadioSetting("timeouttimer", "Timeout timer",
                           RadioSettingValueList(
                               TIMEOUTTIMER_LIST,
-                              TIMEOUTTIMER_LIST[
-                                  (_settings.timeouttimer) - 1]))
+                              current_index=(_settings.timeouttimer) - 1))
         basic.append(rs)
 
         # Menu 12 - Roger Tone
@@ -513,7 +511,7 @@ class RB17P_Base(chirp_common.CloneModeRadio):
         rs = RadioSetting("sidekey", "Side Key",
                           RadioSettingValueList(
                               SIDEKEY_LIST,
-                              SIDEKEY_LIST[_settings.sidekey]))
+                              current_index=_settings.sidekey))
         basic.append(rs)
 
         # Menu 14 - Auto Key Lock
@@ -530,28 +528,28 @@ class RB17P_Base(chirp_common.CloneModeRadio):
         rs = RadioSetting("scanmode", "Scan mode",
                           RadioSettingValueList(
                               SCANMODE_LIST,
-                              SCANMODE_LIST[_settings.scanmode]))
+                              current_index=_settings.scanmode))
         basic.append(rs)
 
         # Alarm Type
         rs = RadioSetting("alarmtype", "Alarm Type",
                           RadioSettingValueList(
                               ALARMTYPE_LIST,
-                              ALARMTYPE_LIST[_settings.alarmtype]))
+                              current_index=_settings.alarmtype))
         basic.append(rs)
 
         # VOX Level
         rs = RadioSetting("voxlevel", "Vox level",
                           RadioSettingValueList(
                               VOXLEVEL_LIST,
-                              VOXLEVEL_LIST[_settings.voxlevel]))
+                              current_index=_settings.voxlevel))
         basic.append(rs)
 
         # VOX Delay
         rs = RadioSetting("voxdelay", "Vox delay",
                           RadioSettingValueList(
                               VOXDELAY_LIST,
-                              VOXDELAY_LIST[_settings.voxdelay]))
+                              current_index=_settings.voxdelay))
         basic.append(rs)
 
         return top

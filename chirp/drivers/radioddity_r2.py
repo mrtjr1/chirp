@@ -180,13 +180,19 @@ def _r2_enter_programming_mode(radio):
         raise errors.RadioError("Radio is password protected")
     try:
         serial.write(CMD_ACK)
-        ack = serial.read(6)
+        ack = serial.read(1)
 
     except:
         _r2_exit_programming_mode(radio)
         raise errors.RadioError("Error communicating with radio 2")
 
-    if ack != CMD_ACK:
+    # The latest Retevis RT24 (and likely the RT24V and H777S) models no
+    # longer acknowledge the CMD_ACK above so the 'ack' will be empty and
+    # fail the check causing cloning to fail.
+    #
+    # The factory CPS continues with or without an ack so CHIRP will
+    # behave the same way.
+    if ack and ack != CMD_ACK:
         _r2_exit_programming_mode(radio)
         raise errors.RadioError("Radio refused to enter programming mode 2")
 
@@ -305,7 +311,6 @@ class RadioddityR2(chirp_common.CloneModeRadio):
     VENDOR = "Radioddity"
     MODEL = "R2"
     BAUD_RATE = 9600
-    NEEDS_COMPAT_SERIAL = False
 
     # definitions on how to read StartAddr EndAddr BlockZize
     _ranges = [
@@ -590,30 +595,30 @@ class RadioddityR2(chirp_common.CloneModeRadio):
 
         rs = RadioSetting("settings.timeout", "Timeout Timer",
                           RadioSettingValueList(
-                              TIMEOUT_LIST, TIMEOUT_LIST[_settings.timeout]))
+                              TIMEOUT_LIST, current_index=_settings.timeout))
 
         basic.append(rs)
 
         rs = RadioSetting("settings.scanmode", "Scan Mode",
                           RadioSettingValueList(
                               SCANMODE_LIST,
-                              SCANMODE_LIST[_settings.scanmode]))
+                              current_index=_settings.scanmode))
         basic.append(rs)
 
         rs = RadioSetting("settings.voice", "Voice Prompts",
                           RadioSettingValueList(
-                              VOICE_LIST, VOICE_LIST[_settings.voice]))
+                              VOICE_LIST, current_index=_settings.voice))
         basic.append(rs)
 
         rs = RadioSetting("settings.voxgain", "VOX Level",
                           RadioSettingValueList(
-                              VOX_LIST, VOX_LIST[_settings.voxgain]))
+                              VOX_LIST, current_index=_settings.voxgain))
         basic.append(rs)
 
         rs = RadioSetting("settings.voxdelay", "VOX Delay Time",
                           RadioSettingValueList(
                               VOXDELAY_LIST,
-                              VOXDELAY_LIST[_settings.voxdelay]))
+                              current_index=_settings.voxdelay))
         basic.append(rs)
 
         rs = RadioSetting("settings.save", "Battery Save",

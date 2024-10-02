@@ -27,18 +27,6 @@ from chirp.settings import RadioSettings, RadioSettingSubGroup
 
 LOG = logging.getLogger(__name__)
 
-# Gross hack to handle missing future module on un-updatable
-# platforms like MacOS. Just avoid registering these radio
-# classes for now.
-try:
-    from builtins import bytes
-    has_future = True
-except ImportError:
-    has_future = False
-    LOG.debug('python-future package is not '
-              'available; %s requires it' % __name__)
-
-
 HEADER_FORMAT = """
 #seekto 0x0100;
 struct {
@@ -396,7 +384,6 @@ class KenwoodTKx180Radio(chirp_common.CloneModeRadio):
     VENDOR = 'Kenwood'
     MODEL = 'TK-x180'
     BAUD_RATE = 9600
-    NEEDS_COMPAT_SERIAL = False
     FORMATS = [directory.register_format('Kenwood KPG-89D', '*.dat')]
 
     _system_start = 0x0B00
@@ -850,7 +837,7 @@ class KenwoodTKx180Radio(chirp_common.CloneModeRadio):
         clockfmt = RadioSetting(
             'clockfmt', 'Clock Format',
             RadioSettingValueList(CLOCKFMT,
-                                  CLOCKFMT[settings.clockfmt]))
+                                  current_index=settings.clockfmt))
         clockfmt.set_apply_callback(apply_clockfmt)
         common1.append(clockfmt)
 
@@ -860,7 +847,7 @@ class KenwoodTKx180Radio(chirp_common.CloneModeRadio):
         datefmt = RadioSetting(
             'datefmt', 'Date Format',
             RadioSettingValueList(DATEFMT,
-                                  DATEFMT[settings.datefmt]))
+                                  current_index=settings.datefmt))
         datefmt.set_apply_callback(apply_datefmt)
         common1.append(datefmt)
 
@@ -1225,47 +1212,52 @@ class KenwoodTKx180RadioZone(KenwoodTKx180Radio):
         return []
 
 
-if has_future:
-    @directory.register
-    class KenwoodTK7180Radio(KenwoodTKx180Radio):
-        MODEL = 'TK-7180'
-        VALID_BANDS = [(136000000, 174000000)]
-        _model = b'M7180\x04'
+@directory.register
+class KenwoodTK7180Radio(KenwoodTKx180Radio):
+    MODEL = 'TK-7180'
+    VALID_BANDS = [(136000000, 174000000)]
+    _model = b'M7180\x04'
 
-    @directory.register
-    class KenwoodTK8180Radio(KenwoodTKx180Radio):
-        MODEL = 'TK-8180'
-        VALID_BANDS = [(400000000, 520000000)]
-        _model = b'M8180\x06'
 
-    @directory.register
-    class KenwoodTK2180Radio(KenwoodTKx180Radio):
-        MODEL = 'TK-2180'
-        VALID_BANDS = [(136000000, 174000000)]
-        _model = b'P2180\x04'
+@directory.register
+class KenwoodTK8180Radio(KenwoodTKx180Radio):
+    MODEL = 'TK-8180'
+    VALID_BANDS = [(400000000, 520000000)]
+    _model = b'M8180\x06'
 
-    # K1,K3 are technically 450-470 (K3 == keypad)
-    @directory.register
-    class KenwoodTK3180K1Radio(KenwoodTKx180Radio):
-        MODEL = 'TK-3180K'
-        VALID_BANDS = [(400000000, 520000000)]
-        _model = b'P3180\x06'
 
-    # K2,K4 are technically 400-470 (K4 == keypad)
-    @directory.register
-    class KenwoodTK3180K2Radio(KenwoodTKx180Radio):
-        MODEL = 'TK-3180K2'
-        VALID_BANDS = [(400000000, 520000000)]
-        _model = b'P3180\x07'
+@directory.register
+class KenwoodTK2180Radio(KenwoodTKx180Radio):
+    MODEL = 'TK-2180'
+    VALID_BANDS = [(136000000, 174000000)]
+    _model = b'P2180\x04'
 
-    @directory.register
-    class KenwoodTK8180E(KenwoodTKx180Radio):
-        MODEL = 'TK-8180E'
-        VALID_BANDS = [(400000000, 520000000)]
-        _model = b'M8189\''
 
-    @directory.register
-    class KenwoodTK7180ERadio(KenwoodTKx180Radio):
-        MODEL = 'TK-7180E'
-        VALID_BANDS = [(136000000, 174000000)]
-        _model = b'M7189$'
+# K1,K3 are technically 450-470 (K3 == keypad)
+@directory.register
+class KenwoodTK3180K1Radio(KenwoodTKx180Radio):
+    MODEL = 'TK-3180K'
+    VALID_BANDS = [(400000000, 520000000)]
+    _model = b'P3180\x06'
+
+
+# K2,K4 are technically 400-470 (K4 == keypad)
+@directory.register
+class KenwoodTK3180K2Radio(KenwoodTKx180Radio):
+    MODEL = 'TK-3180K2'
+    VALID_BANDS = [(400000000, 520000000)]
+    _model = b'P3180\x07'
+
+
+@directory.register
+class KenwoodTK8180E(KenwoodTKx180Radio):
+    MODEL = 'TK-8180E'
+    VALID_BANDS = [(400000000, 520000000)]
+    _model = b'M8189\''
+
+
+@directory.register
+class KenwoodTK7180ERadio(KenwoodTKx180Radio):
+    MODEL = 'TK-7180E'
+    VALID_BANDS = [(136000000, 174000000)]
+    _model = b'M7189$'
