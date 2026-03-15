@@ -41,6 +41,10 @@
 #   u8 foo;
 #   u16 bar;
 #  } baz;        /* Structure with u8 and u16               */
+#  union {
+#   u16 whole;
+#   bbcd digits[2];
+# }; /* Union where all elements occupy the same memory     */
 #
 # Example directives:
 #
@@ -111,12 +115,11 @@ def string_straight_decode(string):
     return ''.join(chr(b) for b in string)
 
 
-def format_binary(nbits, value, pad=8):
-    s = ""
-    for i in range(0, nbits):
-        s = "%i%s" % (value & 0x01, s)
-        value >>= 1
-    return "%s%s" % ((pad - len(s)) * ".", s)
+def format_binary(nbits, value, width=8, shift=0, padchar='.'):
+    padleft = width - shift
+    padright = width - padleft - nbits
+    bits = f'{value << shift:0{nbits}b}'[:nbits]
+    return f'{padleft * padchar}{bits}{padright * padchar}'
 
 
 def bits_between(start, end):
@@ -147,21 +150,58 @@ def array_copy(dst, src):
         dst[i].set_value(src[i])
 
 
-def bcd_to_int(bcd_array):
-    """Convert an array of bcdDataElement like \x12\x34
-    into an int like 1234"""
-    value = 0
-    for bcd in bcd_array:
-        a, b = bcd.get_value()
-        value = (value * 100) + (a * 10) + b
-    return value
+def bbcd_to_dec(bbcd: int, packed=True) -> int:
+    """Convert a BE BCD int to decimal int. Usually for getting
+    user-friendly value from raw data.
+
+    For packed, 0x243 (0d579) -> 243.
+    For unpacked, 0x020403 (0d132099) -> 243."""
+    result = 0
+    bit_shift = 4 if packed else 8
+    dec_shift = 0
+    while bbcd > 0:
+        result += (bbcd & 0xF) * (10**dec_shift)
+        bbcd >>= bit_shift
+        dec_shift += 1
+    return result
 
 
-def int_to_bcd(bcd_array, value):
-    """Convert an int like 1234 into bcdDataElements like "\x12\x34" """
-    for i in reversed(range(0, len(bcd_array))):
-        bcd_array[i].set_value(value % 100)
-        value /= 100
+def dec_to_bbcd(dec: int, packed=True) -> int:
+    """Convert a decimal int to BE BCD int. Usually to set raw data from
+    user-friendly value.
+
+    For packed, 243 -> 0x243 (0d579).
+    For unpacked, 243 -> 0x020403 (0d132099)."""
+    result = 0
+    bit_shift_amount = 4 if packed else 8
+    bcd_shift = 0
+    while dec > 0:
+        result += (dec % 10) << bcd_shift
+        dec //= 10
+        bcd_shift += bit_shift_amount
+    return result
+
+
+def numeric_str_to_bcd(bcdel, string, pad='0'):
+    """Convert a string of digits into BCD-like bytes.
+
+    This should only be used for the quasi-BCD encodings of DTMF characters
+    that some radios use (i.e. 0x12 == "12" and 0x1D == "1D")
+    """
+    string = string.ljust(2 * bcdel.size() // 8, pad)
+    for i in range(0, bcdel.size() // 8):
+        bcdel[i] = int(string[i*2:i*2+2], 16)
+
+
+def bcd_to_numeric_str(bcdel, pad='0'):
+    """Convert a list of BCD-like bytes into a string.
+
+    See numeric_str_to_bcd above.
+    """
+    string = ''
+    for i in range(0, bcdel.size() // 8):
+        string += '%02X' % bcdel[i]
+    return string.ljust(2 * bcdel.size() // 8, pad)
 
 
 def get_string(char_array):
@@ -266,7 +306,8 @@ class DataElement:
 class arrayDataElement(DataElement):
     def __repr__(self):
         if isinstance(self.__items[0], bcdDataElement):
-            return "%i:[(%i)]" % (len(self.__items), int(self))
+            hex = self.get_raw().hex().upper()
+            return "%i:[0x%s (%i)]" % (len(self.__items), hex, int(self))
 
         if isinstance(self.__items[0], charDataElement):
             return "%i:[(%s)]" % (len(self.__items), repr(str(self))[1:-1])
@@ -315,6 +356,8 @@ class arrayDataElement(DataElement):
             # for non-ASCII values. On py2 we can just coerce all of these
             # types to a string for compatibility.
             return "".join([str(x.get_value()) for x in self.__items])
+        elif isinstance(self.__items[0], bcdDataElement):
+            return str(int(self))
         else:
             return str(self.__items)
 
@@ -326,8 +369,7 @@ class arrayDataElement(DataElement):
             else:
                 items = reversed(self.__items)
             for i in items:
-                tens, ones = i.get_value()
-                val = (val * 100) + (tens * 10) + ones
+                val = (val * 100) + int(i)
             return val
         else:
             raise ValueError("Cannot coerce this to int")
@@ -335,13 +377,13 @@ class arrayDataElement(DataElement):
     def __set_value_bbcd(self, value):
         for i in reversed(self.__items):
             twodigits = value % 100
-            value /= 100
+            value //= 100
             i.set_value(twodigits)
 
     def __set_value_lbcd(self, value):
         for i in self.__items:
             twodigits = value % 100
-            value /= 100
+            value //= 100
             i.set_value(twodigits)
 
     def __set_value_char(self, value):
@@ -679,9 +721,12 @@ class charDataElement(DataElement):
 
 
 class bcdDataElement(DataElement):
+    def __init__(self, *a, **k):
+        super().__init__(*a, **k)
+        self._ignoremask = 0x00
+
     def __int__(self):
-        tens, ones = self.get_value()
-        return (tens * 10) + ones
+        return bbcd_to_dec(self.get_value())
 
     def set_bits(self, mask):
         self._data[self._offset] = ord(self._data[self._offset]) | int(mask)
@@ -691,6 +736,9 @@ class bcdDataElement(DataElement):
 
     def get_bits(self, mask):
         return ord(self._data[self._offset]) & int(mask)
+
+    def ignore_bits(self, mask):
+        self._ignoremask = mask
 
     def set_raw(self, data):
         if isinstance(data, int):
@@ -706,12 +754,19 @@ class bcdDataElement(DataElement):
                             type(data))
 
     def set_value(self, value):
-        self._data[self._offset] = int("%02i" % value, 16)
+        preserve = self._data[self._offset][0] & self._ignoremask
+        self._data[self._offset] = (
+            dec_to_bbcd(int(value) & 0xFF) & ~self._ignoremask) | preserve
 
     def _get_value(self, data):
-        a = (ord(data) & 0xF0) >> 4
-        b = ord(data) & 0x0F
-        return (a, b)
+        return data[0] & ~self._ignoremask
+
+    def __str__(self):
+        return str(int(self))
+
+    def __repr__(self):
+        hex = self.get_raw().hex().upper()
+        return f'0x{hex} ({int(self)})'
 
 
 class lbcdDataElement(bcdDataElement):
@@ -728,8 +783,10 @@ class bitDataElement(intDataElement):
     _subgen = u8DataElement  # Default to a byte
 
     def __repr__(self):
-        fmt = "0x%%0%iX (%%sb)" % (self._size * 2)
-        return fmt % (int(self), format_binary(self._nbits, self.get_value()))
+        size = self._subgen._size * 8
+        hex_len = size // 4
+        bits = format_binary(self._nbits, self.get_value(), size, self._shift)
+        return f'0x{int(self):0{hex_len}X} ({bits}b)'
 
     def get_value(self):
         data = self._subgen(self._data, self._offset).get_value()
@@ -747,13 +804,24 @@ class bitDataElement(intDataElement):
 
         self._subgen(self._data, self._offset).set_value(value)
 
+    def get_bbcd(self) -> int:
+        """Get BE BCD as a user-friendly decimal. e.g. 0x243 (0d579) -> 243."""
+        return bbcd_to_dec(int(self))
+
+    def set_bbcd(self, decimal: int):
+        """Set decimal as stored BE BCD. e.g. 243 -> 0x243 (0d579)."""
+        self.set_value(dec_to_bbcd(int(decimal)))
+
     def size(self):
         return int(self._nbits)
 
 
 class structDataElement(DataElement):
     def __repr__(self):
-        s = "struct {" + os.linesep
+        return self._make_repr('struct')
+
+    def _make_repr(self, typename):
+        s = typename + " {" + os.linesep
         for prop in self._keys:
             s += "  %15s: %s%s" % (prop, repr(self._generators[prop]),
                                    os.linesep)
@@ -804,12 +872,13 @@ class structDataElement(DataElement):
             self._generators[key] = value
             self._keys.append(key)
 
+    def __dir__(self):
+        return list(super().__dir__()) + list(self._generators.keys())
+
     def __getattr__(self, name):
         try:
             return self._generators[name]
         except KeyError:
-            LOG.error('Request for struct element %s not in %s' % (
-                name, self._generators.keys()))
             raise AttributeError("No attribute %s in struct %s" % (
                 name, self._name))
 
@@ -852,6 +921,27 @@ class structDataElement(DataElement):
     def items(self):
         for key in self._keys:
             yield key, self._generators[key]
+
+
+class unionDataElement(structDataElement):
+    def __repr__(self):
+        return self._make_repr('union')
+
+    def set_union_size(self, size):
+        # We don't know the size of the union until we have processed the first
+        # member, so allow this to be set after creation.
+        assert (size % 8 == 0)
+        self.__dict__['_size'] = size
+
+    def size(self):
+        return self._size
+
+
+def parse_count(string):
+    if string.startswith('0x'):
+        return int(string, 16)
+    else:
+        return int(string)
 
 
 class Processor:
@@ -956,7 +1046,7 @@ class Processor:
         else:
             if defn[1][0] == "array":
                 sym = defn[1][1][0]
-                count = int(defn[1][1][1][1])
+                count = parse_count(defn[1][1][1][1])
             else:
                 count = 1
                 sym = defn[1]
@@ -983,7 +1073,7 @@ class Processor:
                     self._offset += (gen.size() // 8)
                 res.append(gen)
 
-            if count == 1:
+            if defn[1][0] != "array":
                 self._generators[name] = res[0]
             else:
                 self._generators[name] = res
@@ -997,7 +1087,7 @@ class Processor:
         deftype = struct[-1]
         if deftype[0] == "array":
             name = deftype[1][0][1]
-            count = int(deftype[1][1][1])
+            count = parse_count(deftype[1][1][1])
         elif deftype[0] == "symbol":
             name = deftype[1]
             count = 1
@@ -1015,7 +1105,7 @@ class Processor:
             self._generators = tmp
             self._lines = tmp_lines
 
-        if count == 1:
+        if deftype[0] != "array":
             self._generators[name] = result[0]
         else:
             self._generators[name] = result
@@ -1032,6 +1122,51 @@ class Processor:
             return self.parse_struct_decl(struct[0][1])
         else:
             raise Exception("Internal error: What is `%s'?" % struct[0][0])
+
+    def parse_union(self, union):
+        deftype = union[-1]
+        block = union[:-1]
+        union_size = 0
+        tmp = self._generators
+
+        if deftype[0] == "array":
+            name = deftype[1][0][1]
+            count = parse_count(deftype[1][1][1])
+        elif deftype[0] == "symbol":
+            name = deftype[1]
+            count = 1
+
+        result = arrayDataElement(self._offset)
+        for i in range(0, count):
+            start_of_union_offset = self._offset
+            self._generators = element = unionDataElement(
+                self._data,
+                start_of_union_offset,
+                name=name)
+            for t, d in block:
+                self._offset = start_of_union_offset
+                if t not in ("definition", "struct", "union"):
+                    raise ParseError("Not supported in union: %s" % t)
+                self.parse_statement(t, d)
+                size = self._offset - start_of_union_offset
+                if union_size == 0:
+                    union_size = size
+                elif union_size != size:
+                    LOG.error('Union member size mismatch parsing %s', name)
+                    raise ParseError('Union members must be the same size '
+                                     '(found %i, expected %i)' % (size,
+                                                                  union_size))
+                element.set_union_size(union_size * 8)
+            if union_size == 0:
+                raise ParseError('Empty union %r is not valid' % name)
+            # Increment the offset only past the end of the union
+            self._offset = start_of_union_offset + union_size
+            result.append(element)
+
+        self._generators = tmp
+        if count == 1:
+            result = result[0]
+        self._generators[name] = result
 
     def assert_negative_seek(self, message):
         warnings.warn(message, DeprecationWarning, stacklevel=6)
@@ -1057,14 +1192,19 @@ class Processor:
             LOG.debug("%s: %i (0x%08X)" %
                       (value[1:-1], self._offset, self._offset))
 
+    def parse_statement(self, type_, data):
+        if type_ == "struct":
+            self.parse_struct(data)
+        elif type_ == "definition":
+            self.parse_defn(data)
+        elif type_ == "directive":
+            self.parse_directive(data)
+        elif type_ == "union":
+            self.parse_union(data)
+
     def parse_block(self, lang):
         for t, d in lang:
-            if t == "struct":
-                self.parse_struct(d)
-            elif t == "definition":
-                self.parse_defn(d)
-            elif t == "directive":
-                self.parse_directive(d)
+            self.parse_statement(t, d)
 
     def parse(self, lang):
         self._lines = {}

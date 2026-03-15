@@ -1,4 +1,4 @@
-from distutils.core import setup
+from setuptools import setup
 from setuptools import find_packages
 
 setup(name='chirp',
@@ -13,6 +13,7 @@ setup(name='chirp',
           'requests',
           'yattag',
           'suds',
+          'lark',
       ],
       extras_require={
           'wx': ['wxPython'],

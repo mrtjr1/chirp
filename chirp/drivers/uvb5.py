@@ -13,8 +13,6 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-from __future__ import division
-
 import struct
 import logging
 from chirp import chirp_common, directory, bitwise, memmap, errors, util
@@ -271,6 +269,9 @@ class BaofengUVB5(chirp_common.CloneModeRadio,
         "VFO2": -1,
     }
 
+    # Allow changing channel name length in radios that inherit from this class
+    NAME_LENGTH = 5
+
     _memsize = 0x1000
 
     @classmethod
@@ -313,7 +314,7 @@ class BaofengUVB5(chirp_common.CloneModeRadio,
         rf.can_odd_split = True
         rf.valid_skips = ["", "S"]
         rf.valid_characters = CHARSET
-        rf.valid_name_length = 5
+        rf.valid_name_length = self.NAME_LENGTH
         rf.valid_tuning_steps = UVB5_STEPS
         rf.valid_bands = [(130000000, 175000000),
                           (220000000, 269000000),
@@ -483,7 +484,7 @@ class BaofengUVB5(chirp_common.CloneModeRadio,
         _mem.highpower = mem.power == POWER_LEVELS[1]
 
         if _nam:
-            for i in range(0, 5):
+            for i in range(0, self.NAME_LENGTH):
                 try:
                     _nam[i] = CHARSET.index(mem.name[i])
                 except IndexError:
@@ -677,20 +678,23 @@ class BaofengUVB5(chirp_common.CloneModeRadio,
         rs.set_apply_callback(apply_limit, self._memobj.limits)
         basic.append(rs)
 
-        fm_preset = RadioSettingGroup("fm_preset", "FM Radio Presets")
-        group.append(fm_preset)
+        if 'fm_presets' in self._memobj:
+            fm_preset = RadioSettingGroup("fm_preset", "FM Radio Presets")
+            group.append(fm_preset)
 
-        for i in range(0, 16):
-            if self._memobj.fm_presets[i] < 0x01AF:
-                used = True
-                preset = self._memobj.fm_presets[i] / 10.0 + 65
-            else:
-                used = False
-                preset = 65
-            rs = RadioSetting("fm_presets_%1i" % i, "FM Preset %i" % (i + 1),
-                              RadioSettingValueBoolean(used),
-                              RadioSettingValueFloat(65, 108, preset, 0.1, 1))
-            fm_preset.append(rs)
+            for i in range(0, 16):
+                if self._memobj.fm_presets[i] < 0x01AF:
+                    used = True
+                    preset = self._memobj.fm_presets[i] / 10.0 + 65
+                else:
+                    used = False
+                    preset = 65
+                rs = RadioSetting("fm_presets_%1i" % i,
+                                  "FM Preset %i" % (i + 1),
+                                  RadioSettingValueBoolean(used),
+                                  RadioSettingValueFloat(65, 108, preset,
+                                                         0.1, 1))
+                fm_preset.append(rs)
 
         testmode = RadioSettingGroup("testmode", "Test Mode Settings")
         group.append(testmode)

@@ -13,6 +13,12 @@ Baiston:
 - alt: Baofeng BF-888
   model: BST-2100
 Baofeng/Pofung:
+- alt: K6
+  model: K61
+- alt: K6
+  model: K63
+- alt: K6
+  model: K6A
 - alt: 5RM
   model: Baofeng AR-5RM
 - alt: BF-1901
@@ -21,12 +27,18 @@ Baofeng/Pofung:
   model: Baofeng BF-1903
 - alt: Baofeng BF-888
   model: Baofeng BF-777S
+- alt: UV-13Pro
+  model: P15UV
 - alt: UV-5R
   model: 997-S (Foscam Digital Technologies)
 - alt: UV-5R
   model: AR-152
 - alt: UV-5R
   model: B-580T
+- alt: UV-17Pro
+  model: UV-17R
+- alt: UV-17R-Plus
+  model: UV-17M
 - alt: UV-25
   model: BF-18H
 - alt: UV-25
@@ -101,7 +113,7 @@ Baofeng/Pofung:
   model: P11UV
 - alt: Radioddity UV-5G
   model: UV-5G
-- alt: Baofeng GM-5RH
+- alt: Radioddity UV-5G Plus
   model: UV-5G Plus
 - alt: BF-F8HP
   model: UV-5R HTQ
@@ -114,7 +126,7 @@ Baofeng/Pofung:
 - alt: UV-5R
   model: UV-5R++
 - alt: BF-F8HP
-  model: UV-5R7W
+  model: UV-5R7W, UV-5R8W
 - alt: UV-5R
   model: UV-5RA, UV-5RA+, UV-5RAX, UV-5RAX+
 - alt: Radioddity UV-5RX3
@@ -165,6 +177,8 @@ Baofeng/Pofung:
   model: UV-82T
 - alt: Radioddity UV-82X3
   model: UV-82X3
+- alt: BF-888
+  model: TH-888S
 - alt: UV-5R
   model: UV-860
 - alt: UV-5R
@@ -276,12 +290,16 @@ TIDRADIO:
   model: BF-F8TD
 - alt: Baofeng UV-82HP
   model: UV-82
+- alt: Baofeng BF-888
+  model: TD-V2
 TXQ:
 - alt: Abbree AR-63
   model: G63
 TYT:
 - alt: Explorer QRZ-1
   model: QRZ-1
+- alt: TH-7800
+  model: TH-7900
 Tacklife:
 - alt: Radioddity R2
   model: MTR01
@@ -310,6 +328,12 @@ Wouxun:
   model: KG-UV9P
 - alt: Wouxun KG-UV9D Plus
   model: KG-UV9D Mate
+- alt: Wouxun KG-UV9PX
+  model: KG-UV9PX Plus
+- alt: Wouxun KG-UV9PX
+  model: KG-UV9DX
+- alt: Wouxun KG-UV9GX
+  model: KG-UV9GX Plus
 Wurui:
 - alt: Abbree AR-63
   model: G63

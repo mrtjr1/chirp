@@ -50,7 +50,10 @@ def _rawrecv(radio, amount):
         msg = "Generic error reading data from radio; check your cable."
         raise errors.RadioError(msg)
 
-    if len(data) != amount:
+    if not data:
+        LOG.debug('No response from radio')
+        raise errors.RadioNoContactLikelyK1()
+    elif len(data) != amount:
         LOG.debug('Wanted %i, got %i: %s',
                   amount, len(data), util.hexprint(data))
         msg = "Error reading data from radio: not the amount of data we want."
@@ -431,21 +434,6 @@ def _upload(radio):
             radio.status_fn(status)
 
 
-def _split(rf, f1, f2):
-    """Returns False if the two freqs are in the same band (no split)
-    or True otherwise"""
-
-    # determine if the two freqs are in the same band
-    for low, high in rf.valid_bands:
-        if f1 >= low and f1 <= high and \
-                f2 >= low and f2 <= high:
-            # if the two freqs are on the same Band this is not a split
-            return False
-
-    # if you get here is because the freq pairs are split
-    return True
-
-
 def bcd_decode_freq(bytes):
     real_freq = 0
     for byte in bytes:
@@ -541,7 +529,7 @@ class BaofengCommonHT(chirp_common.CloneModeRadio,
         raw_tx = b""
         for i in range(0, 4):
             raw_tx += _mem.txfreq[i].get_raw()
-        return raw_tx == b"\xFF\xFF\xFF\xFF"
+        return raw_tx in (b"\xFF\xFF\xFF\xFF", b"\x00\x00\x00\x00")
 
     def get_memory(self, number):
         _mem = self._memobj.memory[number]
@@ -564,8 +552,8 @@ class BaofengCommonHT(chirp_common.CloneModeRadio,
             # TX freq set
             offset = (int(_mem.txfreq) * 10) - mem.freq
             if offset != 0:
-                if _split(self.get_features(), mem.freq, int(
-                          _mem.txfreq) * 10):
+                if chirp_common.is_split(self.get_features().valid_bands,
+                                         mem.freq, int(_mem.txfreq) * 10):
                     mem.duplex = "split"
                     mem.offset = int(_mem.txfreq) * 10
                 elif offset < 0:

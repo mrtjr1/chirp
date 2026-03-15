@@ -72,11 +72,14 @@ class TestUtilityFunctions(base.BaseTest):
         self.assertTrue(chirp_common.is_version_newer('daily-20180101'))
 
     def test_from_Hz(self):
-        # FIXME: These are wrong! Adding them here purely to test the
-        # python3 conversion, but they should be fixed.
-        self.assertEqual(140, chirp_common.from_GHz(14000000001))
-        self.assertEqual(140, chirp_common.from_MHz(14000001))
-        self.assertEqual(140, chirp_common.from_kHz(14001))
+        self.assertEqual(140, chirp_common.from_GHz(140000000001))
+        self.assertEqual(140, chirp_common.from_MHz(140000001))
+        self.assertEqual(140, chirp_common.from_kHz(140001))
+
+    def test_mem_to_from_csv(self):
+        mem1 = chirp_common.Memory()
+        mem2 = chirp_common.Memory._from_csv(','.join(mem1.to_csv()))
+        self.assertEqual(str(mem1), str(mem2))
 
     def test_mem_from_text_rb1(self):
         text = '145.2500 	-0.6 MHz 	97.4 	OPEN'
@@ -227,6 +230,24 @@ class TestUtilityFunctions(base.BaseTest):
         self.assertEqual(150000000, mem.offset)
         self.assertEqual('split', mem.duplex)
 
+    def test_mem_from_text_tsv(self):
+        from_lo = """8	Mt Scott	147.28	+	0.6	TSQL	88.5	167.9	23	NN	23	Tone->Tone	FM	5		50W	TayDan Emergency Step #2
+9	Mt Tabor	145.39	-	0.6	TSQL	88.5	100	23	NN	23	Tone->Tone	FM	5		50W	TayDan Emergency Step #1
+10	Timberline V	147.12	+	0.6	TSQL	103.5	100	23	NN	23	Tone->Tone	FM	5		50W	TayDan Emergency Step #4
+11	Timberline U	444.225	+	5	TSQL	88.5	100	23	NN	23	Tone->Tone	FM	5		50W	K7RPT Timberline, Linked to VHF side, AC7QE-R echolink
+12	GovtCamp	443.875	+	5	TSQL	88.5	103.5	23	NN	23	Tone->Tone	FM	5		50W"""  # noqa
+
+        lines = from_lo.split('\n')
+        mem = chirp_common.mem_from_text(lines[0])
+        self.assertEqual('Mt Scott', mem.name)
+        self.assertEqual('TSQL', mem.tmode)
+        self.assertEqual('+', mem.duplex)
+        self.assertEqual(600000, mem.offset)
+        self.assertEqual(147280000, mem.freq)
+        self.assertEqual(8, mem.number)
+        for line in from_lo.split('\n'):
+            chirp_common.mem_from_text(line)
+
     def test_mem_to_text1(self):
         mem = chirp_common.Memory()
         mem.freq = 146900000
@@ -286,6 +307,15 @@ class TestUtilityFunctions(base.BaseTest):
         invalid = ['2500d', '2d1', 'aaa', 'a', '']
         for s in invalid:
             self.assertRaises(ValueError, chirp_common.parse_power, s)
+
+    def test_airband(self):
+        self.assertTrue(chirp_common.is_airband(108000000))
+        self.assertTrue(chirp_common.is_airband(108000000 + 25000))
+        self.assertTrue(chirp_common.is_airband(136000000 - 25000))
+        self.assertTrue(chirp_common.is_airband(136000000))
+
+        self.assertFalse(chirp_common.is_airband(108000000 - 1))
+        self.assertFalse(chirp_common.is_airband(137000000 + 1))
 
 
 class TestSplitTone(base.BaseTest):
@@ -481,7 +511,7 @@ class TestStepFunctions(base.BaseTest):
                  6.25: self._625,
                  12.5: self._125,
                  }
-        allowed = [6.25, 12.5]
+        allowed = [12.5, 6.25]
         for step, freqs in list(steps.items()):
             for freq in freqs:
                 # We don't support 5.0, so any of the frequencies in that
@@ -497,7 +527,7 @@ class TestStepFunctions(base.BaseTest):
     def test_required_step_finds_suitable(self):
         # If we support 5.0, we should get it as the step for those
         self.assertEqual(5.0, chirp_common.required_step(self._005[0],
-                                                         allowed=[2.5, 5.0]))
+                                                         allowed=[5.0, 2.5]))
         # If we support 2.5 and not 5.0, then we should find 2.5 as a suitable
         # alternative
         self.assertEqual(2.5, chirp_common.required_step(self._005[0],
@@ -511,7 +541,7 @@ class TestStepFunctions(base.BaseTest):
     def test_required_step_fail(self):
         self.assertRaises(errors.InvalidDataError,
                           chirp_common.required_step,
-                          146520500)
+                          146520500, allowed=[5.0, 10.0, 12.5])
 
     def test_fix_rounded_step_250(self):
         self.assertEqual(146106250,
@@ -524,6 +554,78 @@ class TestStepFunctions(base.BaseTest):
     def test_fix_rounded_step_750(self):
         self.assertEqual(146118750,
                          chirp_common.fix_rounded_step(146118000))
+
+    def test_fix_rounded_step_no_change(self):
+        self.assertEqual(146520000,
+                         chirp_common.fix_rounded_step(146520000))
+
+    def test_fix_rounded_step_833(self):
+        # 118.008 should be aligned to 8.33kHz step
+        self.assertEqual(
+            int(118000000 + (25000 / 3)),
+            chirp_common.fix_rounded_step(chirp_common.to_MHz(118.008)))
+
+        # 108.0 MHz should be left unchanged as it is 25kHz-aligned
+        self.assertFalse(chirp_common.is_8_33(
+            chirp_common.to_MHz(108)))
+        self.assertEqual(chirp_common.to_MHz(108),
+                         chirp_common.fix_rounded_step(
+                             chirp_common.to_MHz(108)))
+
+        # 108.025 MHz should be left unchanged
+        self.assertFalse(chirp_common.is_8_33(
+            chirp_common.to_MHz(108.025)))
+        self.assertEqual(chirp_common.to_MHz(108.025),
+                         chirp_common.fix_rounded_step(
+                             chirp_common.to_MHz(108.025)))
+
+        # Even though 146.008333 is a valid 8.33kHz step, we should
+        # not align it as such since it is not in airband
+        self.assertTrue(chirp_common.is_8_33(
+            chirp_common.to_MHz(146.008333)))
+        self.assertRaisesRegex(errors.InvalidDataError,
+                               'Unable to correct.*',
+                               chirp_common.fix_rounded_step,
+                               chirp_common.to_MHz(146.008333))
+
+        # Using a channel name should be aligned to the actual frequency
+        self.assertEqual(
+            int(132050000),
+            chirp_common.fix_rounded_step(chirp_common.to_MHz(132.055)))
+        self.assertEqual(
+            int(132050000) + (25000 // 3),
+            chirp_common.fix_rounded_step(chirp_common.to_MHz(132.060)))
+        self.assertEqual(
+            int(132050000) + (25000 // 3) * 2,
+            chirp_common.fix_rounded_step(chirp_common.to_MHz(132.065)))
+        self.assertEqual(
+            int(132075000),
+            chirp_common.fix_rounded_step(chirp_common.to_MHz(132.080)))
+
+        # This is not valid
+        self.assertRaisesRegex(errors.InvalidDataError,
+                               'Aircraft frequencies must be aligned.*',
+                               chirp_common.fix_rounded_step,
+                               chirp_common.to_MHz(132.070))
+
+    def test_fix_rounded_step_833_examples(self):
+        # https://ukradiotransmissions.wordpress.com/2019/02/06/new-8-33khz-airband-channel-spacing-frequencies-a-conversion-chart-and-explanation/
+        cases = [
+            (132005000, 132000000),
+            (132010000, 132008300),
+            (132015000, 132016600),
+            (132030000, 132025000),
+            (132035000, 132033300),
+            (132040000, 132041600),
+            (132055000, 132050000),
+            (132060000, 132058300),
+            (132065000, 132066600),
+            (132080000, 132075000),
+            (132085000, 132083300),
+            (132090000, 132091600),
+        ]
+        for channel, freq in cases:
+            pass
 
 
 class TestImageMetadata(base.BaseTest):

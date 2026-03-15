@@ -32,6 +32,7 @@ from chirp.settings import (
     RadioSettingValueInteger,
     RadioSettingValueList,
     RadioSettingValueString,
+    RadioSettingValueMap,
 )
 
 LOG = logging.getLogger(__name__)
@@ -46,7 +47,7 @@ struct {
      scode:4;         //     Signaling
   u8 unknown2:6,      // D
      pttid:2;         //     PTT-ID
-  u8 unknown3:6,      // E
+  u8 scramble:6,      //     Scramble
      txpower:2;       //     Power Level  0 = H, 1 = L, 2 = M
   u8 unknown4:1,      // F
      narrow:1,        //     Bandwidth  0 = Wide, 1 = Narrow
@@ -269,6 +270,8 @@ ALL_SKEY_VALUES = [0xFF,
                    0x2D,
                    0x23]
 
+SCRAMBLE_VALUEMAP = [("Off", 0x00), ("SCRAM1", 0x04), ("SCRAM2", 0x08)]
+
 
 def _enter_programming_mode(radio):
     serial = radio.pipe
@@ -402,21 +405,6 @@ def do_upload(radio):
     _exit_programming_mode(radio)
 
 
-def _split(rf, f1, f2):
-    """Returns False if the two freqs are in the same band (no split)
-    or True otherwise"""
-
-    # determine if the two freqs are in the same band
-    for low, high in rf.valid_bands:
-        if f1 >= low and f1 <= high and \
-                f2 >= low and f2 <= high:
-            # if the two freqs are on the same Band this is not a split
-            return False
-
-    # if you get here is because the freq pairs are split
-    return True
-
-
 class JC8810base(chirp_common.CloneModeRadio):
     """MML JC-8810"""
     VENDOR = "MML"
@@ -536,8 +524,8 @@ class JC8810base(chirp_common.CloneModeRadio):
             # TX freq set
             offset = (int(_mem.txfreq) * 10) - mem.freq
             if offset != 0:
-                if _split(self.get_features(), mem.freq, int(
-                          _mem.txfreq) * 10):
+                if chirp_common.is_split(self.get_features().valid_bands,
+                                         mem.freq, int(_mem.txfreq) * 10):
                     mem.duplex = "split"
                     mem.offset = int(_mem.txfreq) * 10
                 elif offset < 0:
@@ -553,7 +541,7 @@ class JC8810base(chirp_common.CloneModeRadio):
             if str(char) == "\xFF":
                 char = " "  # may have 0xFF mid-name
             mem.name += str(char)
-        mem.name = mem.name.rstrip()
+        mem.name = mem.name.rstrip().replace('\x00', '')
 
         dtcs_pol = ["N", "N"]
 
@@ -627,6 +615,16 @@ class JC8810base(chirp_common.CloneModeRadio):
         mem.mode = _mem.narrow and "NFM" or "FM"
 
         mem.extra = RadioSettingGroup("Extra", "extra")
+
+        # Encryption
+        rs = RadioSettingValueList(ENCRYPT_LIST, current_index=_mem.encrypt)
+        rset = RadioSetting("encrypt", "Encryption", rs)
+        mem.extra.append(rset)
+
+        # Scramble
+        rs = RadioSettingValueMap(SCRAMBLE_VALUEMAP, _mem.scramble)
+        rset = RadioSetting("scramble", "Scramble", rs)
+        mem.extra.append(rset)
 
         # BCL (Busy Channel Lockout)
         rs = RadioSettingValueBoolean(_mem.bcl)
@@ -840,7 +838,8 @@ class JC8810base(chirp_common.CloneModeRadio):
             val = SKEY2S_VALUES[index]
             obj.set_value(val)
 
-        if self.MODEL in ["HI-8811", "RT-470L", "RT-470X", "RT-470"]:
+        if self.MODEL in ["HI-8811", "RT-470L", "RT-470X", "RT-470X_BT",
+                          "RT-470"]:
             unwanted = [9, 10, 11, 12]
         elif self.MODEL in ["UV-A37", "AR-730"]:
             unwanted = [0, 5, 7, 9, 10, 11, 12]
@@ -873,7 +872,8 @@ class JC8810base(chirp_common.CloneModeRadio):
             val = SKEY2L_VALUES[index]
             obj.set_value(val)
 
-        if self.MODEL in ["HI-8811", "RT-470L", "RT-470X", "RT-470"]:
+        if self.MODEL in ["HI-8811", "RT-470L", "RT-470X", "RT-470X_BT",
+                          "RT-470"]:
             unwanted = [8, 9, 10, 11, 12]
         elif self.MODEL in ["UV-A37", "AR-730"]:
             unwanted = [0, 5, 7, 8, 10, 11, 12]
@@ -906,7 +906,8 @@ class JC8810base(chirp_common.CloneModeRadio):
             val = SKEY3S_VALUES[index]
             obj.set_value(val)
 
-        if self.MODEL in ["HI-8811", "RT-470L", "RT-470X", "RT-470"]:
+        if self.MODEL in ["HI-8811", "RT-470L", "RT-470X", "RT-470X_BT",
+                          "RT-470"]:
             unwanted = [8, 9, 10, 11, 12]
         elif self.MODEL in ["UV-A37", "AR-730"]:
             unwanted = [0, 5, 7, 8, 9, 10, 11, 12]
@@ -931,8 +932,8 @@ class JC8810base(chirp_common.CloneModeRadio):
         rset.set_apply_callback(apply_skey3s_listvalue, _settings.skey3_sp)
         basic.append(rset)
 
-        if self.MODEL in ["HI-8811", "RT-470L", "RT-470X", "RT-470", "RT-630",
-                          "RT-495"]:
+        if self.MODEL in ["HI-8811", "RT-470L", "RT-470X", "RT-470X_BT",
+                          "RT-470", "RT-630", "RT-495"]:
             # Menu 24: PF3 LONG PRESS (RT-470L)
             def apply_skey3l_listvalue(setting, obj):
                 LOG.debug("Setting value: " + str(setting.value) +
@@ -942,7 +943,8 @@ class JC8810base(chirp_common.CloneModeRadio):
                 val = SKEY2L_VALUES[index]
                 obj.set_value(val)
 
-            if self.MODEL in ["HI-8811", "RT-470L", "RT-470X", "RT-470"]:
+            if self.MODEL in ["HI-8811", "RT-470L", "RT-470X", "RT-470X_BT",
+                              "RT-470"]:
                 unwanted = [8, 9, 10, 11, 12]
             elif self.MODEL in ["RT-630", "RT-495"]:
                 unwanted = [5, 9, 10, 11, 12]
@@ -973,7 +975,8 @@ class JC8810base(chirp_common.CloneModeRadio):
             val = SKEYTOP_VALUES[index]
             obj.set_value(val)
 
-        if self.MODEL in ["HI-8811", "RT-470L", "RT-470X", "RT-470"]:
+        if self.MODEL in ["HI-8811", "RT-470L", "RT-470X", "RT-470X_BT",
+                          "RT-470"]:
             unwanted = [8, 9, 10, 11, 12]
         elif self.MODEL in ["UV-A37", "AR-730"]:
             unwanted = [0, 5, 7, 8, 9, 10, 11, 12]
@@ -1007,7 +1010,8 @@ class JC8810base(chirp_common.CloneModeRadio):
         rset = RadioSetting("ponmsg", "Power On Message", rs)
         basic.append(rset)
 
-        if self.MODEL in ["HI-8811", "RT-470L", "RT-470X", "RT-630", "RT-495"]:
+        if self.MODEL in ["HI-8811", "RT-470L", "RT-470X", "RT-470X_BT",
+                          "RT-630", "RT-495"]:
             rs = RadioSettingValueList(TAILCODE_LIST,
                                        current_index=_settings.tailcode)
             rset = RadioSetting("tailcode", "Tail Code", rs)
@@ -1126,9 +1130,12 @@ class JC8810base(chirp_common.CloneModeRadio):
         rset = RadioSetting("dtmf.dtmfoff", "DTMF Speed (off)", rs)
         dtmf.append(rset)
 
-        rs = RadioSettingValueList(PTTID_LIST, current_index=_settings.pttid)
-        rset = RadioSetting("pttid", "PTT ID", rs)
-        dtmf.append(rset)
+        # RT470X Plus Bluetooth does not seem to have correct PTTID setting
+        if self.MODEL not in ["RT-470X_BT"]:
+            rs = RadioSettingValueList(
+                PTTID_LIST, current_index=_settings.pttid)
+            rset = RadioSetting("pttid", "PTT ID", rs)
+            dtmf.append(rset)
 
         ani = RadioSettingGroup("ani", "ANI Code List Settings")
         group.append(ani)
@@ -1275,6 +1282,7 @@ class RT470Radio(JC8810base):
                          b"\x00\x00\x00\x42\x00\x20\xF0\x04",
                          b"\x00\x00\x00\x4A\x00\x20\xF8\x04",
                          b"\x00\x00\x00\x3A\x00\x20\xE8\x04",  # fw 1.25A
+                         b"\x00\x00\x00\x42\x00\x20\xec\x04",  # fw 1.27A
                          ]
 
     # pcb 2
@@ -1355,24 +1363,41 @@ class RT470XRadio(RT470LRadio):
     def get_features(self):
         rf = super().get_features()
         rf.valid_modes.append('AM')
+        rf.valid_modes.append('NAM')
+        rf.valid_bands = [(18000000, 1000000000)]
         return rf
 
     def validate_memory(self, mem):
         msgs = []
         in_range = chirp_common.in_range
-        if in_range(mem.freq, [self._AIRBAND]) and not mem.mode == 'AM':
+        AM_mode = mem.mode == 'AM' or mem.mode == "NAM"
+        if in_range(mem.freq, [self._AIRBAND]) and not AM_mode:
             msgs.append(chirp_common.ValidationWarning(
                 _('Frequency in this range requires AM mode')))
-        if not in_range(mem.freq, [self._AIRBAND]) and mem.mode == 'AM':
+        if not in_range(mem.freq, [self._AIRBAND]) and AM_mode:
             msgs.append(chirp_common.ValidationWarning(
                 _('Frequency in this range must not be AM mode')))
         return msgs + super().validate_memory(mem)
 
     def get_memory(self, number):
         mem = super().get_memory(number)
+        _mem = self._memobj.memory[mem.number - 1]
         if chirp_common.in_range(mem.freq, [self._AIRBAND]):
-            mem.mode = 'AM'
+            mem.mode = _mem.narrow and "NAM" or "AM"
         return mem
+
+
+@directory.register
+class RT470XPlusRadio(RT470XRadio):
+    """Radtel RT-470X Plus BT"""
+    VENDOR = "Radtel"
+    MODEL = "RT-470X_BT"
+    RT470X_ORIG = False  # BT fingerprint will fall automatically here
+
+    # BT version
+    _fingerprint_bt = [b"\x01\x36\x01\x80\x04\x00\x05\x20"  # fw v0.15
+                       ]
+    _fingerprint = _fingerprint_bt
 
 
 @directory.register
@@ -1445,7 +1470,7 @@ class A36plusRadio(JC8810base):
 
     # ==========
     # Notice to developers:
-    # The A36plus support in this driver is currently based upon v1.22
+    # The A36plus support in this driver is currently based upon v1.26
     # firmware.
     # ==========
 
@@ -1464,6 +1489,7 @@ class A36plusRadio(JC8810base):
                     b"\x00\x00\x00\x5A\x00\x20\x08\x05",  # fw 1.18
                     b"\x00\x00\x00\x9E\x00\x20\x0C\x05",  # fw 1.22
                     b"\x00\x00\x00\xFA\x00\x20\x40\x05",  # fw 1.4
+                    b"\x00\x00\x00\x9C\x00\x20\x04\x05",  # fw 1.26
                     ]
 
     _ranges = [
@@ -1539,6 +1565,7 @@ class RT630Radio(JC8810base):
     # ==========
 
     _fingerprint = [b"\x00\x00\x00\x32\x00\x20\xD8\x04",  # fw 0.07
+                    b"\x00\x00\x00\x36\x00\x20\xDC\x04",  # fw V0.09 20250703
                     ]
 
     POWER_LEVELS = [chirp_common.PowerLevel("H", watts=5.00),

@@ -18,6 +18,7 @@ import queue
 import tempfile
 import threading
 import urllib
+import re
 
 import wx
 import wx.adv
@@ -27,7 +28,9 @@ from chirp.sources import base
 from chirp.sources import dmrmarc
 from chirp.sources import radioreference
 from chirp.sources import repeaterbook
-from chirp.sources import przemienniki
+from chirp.sources import przemienniki_net
+from chirp.sources import przemienniki_eu
+from chirp.sources import mapy73pl
 from chirp.wxui import common
 from chirp.wxui import config
 
@@ -102,6 +105,42 @@ class DistValidator(NumberValidator):
     MAX = 7000
 
 
+class LocatorValidator(wx.Validator):
+    THING = _('Locator')
+    OPTIONAL = True
+
+    def Validate(self, window):
+        textctrl = self.GetWindow()
+        strvalue = textctrl.GetValue()
+        if not strvalue and self.OPTIONAL:
+            return True
+        result = re.fullmatch(r'^[A-R]{2}\d{2}([a-x]{2})?(\d{2})?$',
+                              strvalue, re.I)
+        if result:
+            return True
+        textctrl.SetFocus()
+        textctrl.SetBackgroundColour('pink')
+        wx.MessageBox(_('Invalid locator'), _('Invalid Entry'))
+        return False
+
+    def Clone(self):
+        return self.__class__()
+
+    def TransferToWindow(self):
+        return True
+
+    def SetWindow(self, win):
+        super().SetWindow(win)
+        # Clear the validation failure background color as soon as the value
+        # changes to avoid asking them to click OK on a dialog with a warning
+        # sign.
+        win.Bind(wx.EVT_TEXT, self._colorchange)
+
+    def _colorchange(self, event):
+        self.GetWindow().SetBackgroundColour(
+            wx.SystemSettings.GetColour(wx.SYS_COLOUR_WINDOW))
+
+
 class ZipValidator(wx.Validator):
     def Validate(self, window):
         textctrl = self.GetWindow()
@@ -113,6 +152,35 @@ class ZipValidator(wx.Validator):
 
     def Clone(self):
         return self.__class__()
+
+    def TransferToWindow(self):
+        return True
+
+
+class CachedValidator(wx.Validator):
+    def __init__(self, rbquery):
+        super().__init__()
+        self._rbquery = rbquery
+
+    def Validate(self, window):
+        checkbox = self.GetWindow()
+        checked = checkbox.IsChecked()
+        is_proximity = all(getattr(self._rbquery, x).GetValue()
+                           for x in ('_lat', '_lon', '_dist'))
+        if is_proximity:
+            valid = True
+        else:
+            valid = not checked
+
+        if not valid:
+            wx.MessageBox(
+                _('Cached results can only be included for a '
+                  'proximity query with Latitude, Longitude, and '
+                  'Distance set. Please uncheck "%s"') % checkbox.GetLabel())
+        return valid
+
+    def Clone(self):
+        return self.__class__(self._rbquery)
 
     def TransferToWindow(self):
         return True
@@ -232,6 +300,7 @@ class QuerySourceDialog(wx.Dialog):
         return ''
 
     def status(self, status, percent):
+        LOG.debug('[%i] Query dialog status %r', percent, status)
         wx.PostEvent(self, QueryThreadEvent(self.GetId(),
                                             status=status, percent=percent))
 
@@ -340,6 +409,21 @@ class RepeaterBookQueryDialog(QuerySourceDialog):
                                   'analog will be shown as FM'))
         self._add_grid(grid, _('Digital Modes'), self._fmconv)
 
+        self._cached = wx.CheckBox(
+            panel,
+            label=_('Results from other areas'),
+            validator=CachedValidator(self))
+        self._cached.SetValue(CONF.get_bool('cached', 'repeaterbook'))
+        self._cached.SetToolTip(_('With this option checked, a proximity '
+                                  'search will include cached results from '
+                                  'other localities if they are in range, '
+                                  'match other filter parameters, and have '
+                                  'been downloaded before.'))
+        self._add_grid(
+            grid, _('Include Cached'), self._cached,
+            url=('https://www.chirpmyradio.com/projects/chirp/'
+                 'wiki/ExternalDatabases#Including-multi-state-results'))
+
         self._state_selected(None)
         self._service_selected(None)
 
@@ -366,18 +450,24 @@ class RepeaterBookQueryDialog(QuerySourceDialog):
         except KeyError:
             self._state.SetItems([_('All')])
             self._state.Enable(False)
+            self._cached.Enable(False)
             return
         self._state.SetItems(states)
         self._state.Enable(True)
+        self._cached.Enable(True)
         prev = CONF.get('state', 'repeaterbook')
         if prev and prev in states:
             self._state.SetStringSelection(prev)
         else:
             self._state.SetStringSelection(states[0])
 
-    def _add_grid(self, grid, label, widget):
-        grid.Add(wx.StaticText(widget.GetParent(), label=label),
-                 border=20, flag=wx.ALIGN_CENTER | wx.RIGHT | wx.LEFT)
+    def _add_grid(self, grid, label, widget, url=None):
+        if url is None:
+            label = wx.StaticText(widget.GetParent(), label=label)
+        else:
+            label = wx.adv.HyperlinkCtrl(widget.GetParent(), label=label,
+                                         url=url)
+        grid.Add(label, border=20, flag=wx.ALIGN_CENTER | wx.RIGHT | wx.LEFT)
         grid.Add(widget, 1, border=20, flag=wx.EXPAND | wx.RIGHT | wx.LEFT)
 
     def _select_bands(self, event):
@@ -426,6 +516,7 @@ class RepeaterBookQueryDialog(QuerySourceDialog):
         CONF.set('service', self._service.GetStringSelection(), 'repeaterbook')
         CONF.set_bool('fmconv', self._fmconv.IsChecked(), 'repeaterbook')
         CONF.set_bool('openonly', self._openonly.IsChecked(), 'repeaterbook')
+        CONF.set_bool('cached', self._cached.IsChecked(), 'repeaterbook')
         self.result_radio = repeaterbook.RepeaterBook()
         super().do_query()
 
@@ -444,6 +535,7 @@ class RepeaterBookQueryDialog(QuerySourceDialog):
             'service_display': self._service.GetStringSelection(),
             'fmconv': self._fmconv.IsChecked(),
             'openonly': self._openonly.IsChecked(),
+            'cached': self._cached.IsChecked(),
         }
 
 
@@ -495,9 +587,9 @@ class DMRMARCQueryDialog(QuerySourceDialog):
                 'country': CONF.get('country', 'dmrmarc')}
 
 
-class PrzemiennikiQueryDialog(QuerySourceDialog):
+class PrzemiennikiNetQueryDialog(QuerySourceDialog):
     NAME = 'przemienniki.net'
-    _section = 'przemienniki'
+    _section = 'przemienniki_net'
     _countries = sorted(
         ['at', 'bg', 'by', 'ch', 'cz', 'de', 'dk', 'es', 'fi',
          'fr', 'hu', 'is', 'it', 'lt', 'lv', 'no', 'nl', 'pl',
@@ -613,7 +705,7 @@ class PrzemiennikiQueryDialog(QuerySourceDialog):
             self._bandfilter.SetValue(False)
         else:
             CONF.set('band', ','.join(self._bands[i]
-                     for i in d.GetSelections()),
+                                      for i in d.GetSelections()),
                      self._section)
 
     def get_info(self):
@@ -630,7 +722,7 @@ class PrzemiennikiQueryDialog(QuerySourceDialog):
         CONF.set('lat', self._lat.GetValue(), 'repeaterbook')
         CONF.set('lon', self._lon.GetValue(), 'repeaterbook')
         CONF.set('dist', self._dist.GetValue(), 'repeaterbook')
-        self.result_radio = przemienniki.Przemienniki()
+        self.result_radio = przemienniki_net.PrzemiennikiNet()
         super().do_query()
 
     def get_params(self):
@@ -646,6 +738,280 @@ class PrzemiennikiQueryDialog(QuerySourceDialog):
         if CONF.get_bool('workingstatus', self._section):
             params['onlyworking'] = 'Yes'
 
+        return params
+
+
+class PrzemiennikiEuQueryDialog(QuerySourceDialog):
+    NAME = 'przemienniki.eu'
+    _section = 'przemienniki_eu'
+    _bands = ['70cm', '2m', '23cm', '10m', '4m', '6m', 'crossband']
+    _modes = ['fm', 'dmr', 'echolink', 'c4fm', 'dstar', 'tetra', 'apco25',
+              'fmlink', 'fmpoland', 'minilink', 'extremelink', 'm17']
+    _status = ['working', 'planned', 'testing', 'off', 'unverified',
+               'inprogress']
+    _prefix = ['sr0', 'sr1', 'sr2', 'sr3', 'sr4', 'sr5', 'sr6', 'sr7', 'sr8',
+               'sr9']
+
+    def _add_grid(self, grid, label, widget):
+        grid.Add(wx.StaticText(widget.GetParent(), label=label),
+                 border=20, flag=wx.ALIGN_CENTER | wx.RIGHT | wx.LEFT)
+        grid.Add(widget, 1, border=20, flag=wx.EXPAND | wx.RIGHT | wx.LEFT)
+
+    def build(self):
+        vbox = wx.BoxSizer(wx.VERTICAL)
+        self.SetSizer(vbox)
+        panel = wx.Panel(self)
+        vbox.Add(panel, 1, flag=wx.EXPAND | wx.ALL, border=20)
+        grid = wx.FlexGridSizer(2, 5, 0)
+        grid.AddGrowableCol(1)
+        panel.SetSizer(grid)
+
+        # Mode
+        self._mode = wx.Choice(panel, choices=self._modes)
+        prev = CONF.get('mode', self._section)
+
+        if prev and prev in self._modes:
+            self._mode.SetStringSelection(prev)
+        else:
+            self._mode.SetStringSelection(self._modes[0])
+        self._add_grid(grid, _('Mode'), self._mode)
+
+        # Band selection
+        if CONF.is_defined('band', self._section):
+            CONF.remove_option('band', self._section)
+
+        self._bandfilter = wx.CheckBox(panel, label=_('Only certain bands'))
+        self.Bind(wx.EVT_CHECKBOX, self._select_bands, self._bandfilter)
+        self._add_grid(grid, _('Limit Bands'), self._bandfilter)
+
+        # Only working
+        if CONF.is_defined('workingstatus', self._section):
+            self._limit_onlyworking = CONF.get_bool('workingstatus',
+                                                    self._section)
+        else:
+            self._limit_onlyworking = True
+        self._onlyworkingfilter = wx.CheckBox(panel,
+                                              label=_('Only working repeaters')
+                                              )
+        self._onlyworkingfilter.SetValue(self._limit_onlyworking)
+        CONF.set_bool('workingstatus', self._limit_onlyworking, self._section)
+        self.Bind(wx.EVT_CHECKBOX, self._select_workingstatus,
+                  self._onlyworkingfilter)
+        self._add_grid(grid, _('Limit Status'), self._onlyworkingfilter)
+
+        # Prefix
+        if CONF.is_defined('prefix', self._section):
+            CONF.remove_option('prefix', self._section)
+
+        self._prefixfilter = wx.CheckBox(panel,
+                                         label=_('Only certain prefixes'))
+        self.Bind(wx.EVT_CHECKBOX, self._select_prefixes, self._prefixfilter)
+        self._add_grid(grid, _('Limit prefixes'), self._prefixfilter)
+
+        # Coordinates
+        self._lat = wx.TextCtrl(panel,
+                                value=CONF.get('lat', 'repeaterbook') or '',
+                                validator=LatValidator())
+        self._lat.SetHint(_('Optional: 52.0000'))
+        self._lat.SetToolTip(_('If set, sort results by distance from '
+                               'these coordinates'))
+        self._lon = wx.TextCtrl(panel,
+                                value=CONF.get('lon', 'repeaterbook') or '',
+                                validator=LonValidator())
+        self._lon.SetHint(_('Optional: 20.0000'))
+        self._lon.SetToolTip(_('If set, sort results by distance from '
+                               'these coordinates'))
+        self._add_grid(grid, _('Latitude'), self._lat)
+        self._add_grid(grid, _('Longitude'), self._lon)
+        self._locator = wx.TextCtrl(
+            panel, value=CONF.get('locator', self._section) or '',
+            validator=LocatorValidator())
+        self._locator.SetHint(_('Optional: AA00 - AA00aa11'))
+        self._locator.SetToolTip(_('Your QTH Locator'))
+        self._add_grid(grid, _('QTH Locator'), self._locator)
+        self._dist = wx.TextCtrl(panel,
+                                 value=CONF.get('dist', 'repeaterbook') or '',
+                                 validator=DistValidator())
+        self._dist.SetHint(_('Optional: 100'))
+        self._dist.SetToolTip(_('Limit results to this distance (km) from '
+                                'coordinates'))
+        self._add_grid(grid, _('Distance'), self._dist)
+
+        return vbox
+
+    def _select_workingstatus(self, event):
+        if not self._onlyworkingfilter.IsChecked():
+            self._limit_onlyworking = False
+        else:
+            self._limit_onlyworking = True
+        CONF.set_bool('workingstatus', self._limit_onlyworking, self._section)
+        return
+
+    def _select_bands(self, event):
+        if not self._bandfilter.IsChecked():
+            CONF.set('band', '', self._section)
+            return
+
+        band_names = [x for x in self._bands]
+        d = wx.MultiChoiceDialog(self, _('Select Bands'), _('Bands'),
+                                 choices=band_names)
+
+        d.SetSelections([i for i, band in enumerate(self._bands)
+                         if band in ['2m', '70cm']])
+        r = d.ShowModal()
+        if r == wx.ID_CANCEL or not d.GetSelections():
+            self._bandfilter.SetValue(False)
+        else:
+            CONF.set('band', ','.join(self._bands[i]
+                                      for i in d.GetSelections()),
+                     self._section)
+
+    def _select_prefixes(self, event):
+        if not self._prefixfilter.IsChecked():
+            CONF.set('prefix', '', self._section)
+            return
+
+        prefix_names = [x for x in self._prefix]
+        d = wx.MultiChoiceDialog(self, _('Select prefixes'), _('Prefixes'),
+                                 choices=prefix_names)
+
+        r = d.ShowModal()
+        if r == wx.ID_CANCEL or not d.GetSelections():
+            self._prefixfilter.SetValue(False)
+        else:
+            CONF.set('prefix', ','.join(self._prefix[i]
+                                        for i in d.GetSelections()),
+                     self._section)
+
+    def get_info(self):
+        return _('Polish repeaters database')
+
+    def get_link(self):
+        return 'https://przemienniki.eu'
+
+    def do_query(self):
+        CONF.set('mode', self._mode.GetStringSelection(), self._section)
+        CONF.set('lat', self._lat.GetValue(), 'repeaterbook')
+        CONF.set('lon', self._lon.GetValue(), 'repeaterbook')
+        CONF.set('locator', self._locator.GetValue(), self._section)
+        CONF.set('dist', self._dist.GetValue(), 'repeaterbook')
+        self.result_radio = przemienniki_eu.PrzemiennikiEu()
+        super().do_query()
+
+    def get_params(self):
+        params = {}
+
+        band = CONF.get('band', self._section)
+        if band:
+            params['band'] = band
+
+        mode = CONF.get('mode', self._section)
+        if mode:
+            params['mode'] = mode
+
+        if CONF.get_bool('workingstatus', self._section):
+            params['status'] = 'working'
+
+        prefix = CONF.get('prefix', self._section)
+        if prefix:
+            params['prefix'] = prefix
+
+        lat = CONF.get('lat', 'repeaterbook')
+        lon = CONF.get('lon', 'repeaterbook')
+        locator = CONF.get('locator', self._section)
+        dist = CONF.get('dist', 'repeaterbook')
+
+        if lon and lat:
+            params['coordinates'] = ','.join([lat, lon])
+        elif locator:
+            params['locator'] = locator
+
+        if (params.get('coordinates') or params.get('locator')) and dist:
+            params['distance'] = dist
+
+        return params
+
+
+class Mapy73PlQueryDialog(QuerySourceDialog):
+    NAME = 'mapy73.pl'
+    _section = 'mapy73pl'
+    _api_option = [
+        'pl-fmpoland',  # 'FM-Poland network'
+        'pl-fmlink',  # 'Poland FM-LINK'
+        'pl-dmr',  # 'Poland DMR'
+        'pl-c4fm',  # 'Poland C4FM'
+        'pl-dstar',  # 'Poland DSTAR'
+        'pl-fm',  # 'Poland FM'
+        'cz-fm',  # 'Czechia FM'
+        'sk-fm',  # 'Slovakia FM'
+        'fi-fm',  # 'Finland FM'
+        'se-fm',  # 'Sweden FM'
+        'no-fm',  # 'Norway FM'
+        'bg-fm',  # 'Bulgaria FM'
+        'dk-fm',  # 'Denmark FM'
+        'de-fm',  # 'Germany FM'
+        'si-fm',  # 'Slovenia FM'
+        'is-fm'  # 'Iceland FM'
+    ]
+    _options_text = [
+        'FM-Poland network',
+        'Poland FM-LINK',
+        'Poland DMR',
+        'Poland C4FM',
+        'Poland DSTAR',
+        'Poland FM',
+        'Czechia FM',
+        'Slovakia FM',
+        'Finland FM',
+        'Sweden FM',
+        'Norway FM',
+        'Bulgaria FM',
+        'Denmark FM',
+        'Germany FM',
+        'Slovenia FM',
+        'Iceland FM'
+    ]
+
+    def _add_grid(self, grid, label, widget):
+        grid.Add(wx.StaticText(widget.GetParent(), label=label),
+                 border=20, flag=wx.ALIGN_CENTER | wx.RIGHT | wx.LEFT)
+        grid.Add(widget, 1, border=20, flag=wx.EXPAND | wx.RIGHT | wx.LEFT)
+
+    def build(self):
+        vbox = wx.BoxSizer(wx.VERTICAL)
+        self.SetSizer(vbox)
+        panel = wx.Panel(self)
+        vbox.Add(panel, 1, flag=wx.EXPAND | wx.ALL, border=20)
+        grid = wx.FlexGridSizer(2, 5, 0)
+        grid.AddGrowableCol(1)
+        panel.SetSizer(grid)
+
+        # Option
+        self._option_text = wx.Choice(panel, choices=self._options_text)
+        self._option_text.SetStringSelection(self._options_text[0])
+        self._add_grid(grid, _('Option'), self._option_text)
+        return vbox
+
+    def get_info(self):
+        return _('FREE repeater database, which provides information\n'
+                 'about repeaters in Europe. No account is required.')
+
+    def get_link(self):
+        return 'https://mapy73.pl'
+
+    def do_query(self):
+        CONF.set('api_option',
+                 self._api_option[self._option_text.GetSelection()],
+                 self._section)
+        self.result_radio = mapy73pl.Mapy73Pl()
+        super().do_query()
+
+    def get_params(self):
+        params = {}
+        params['api_option'] = ''
+        api_option = CONF.get('api_option', self._section)
+        if api_option:
+            params['api_option'] = api_option
         return params
 
 

@@ -13,6 +13,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+import datetime
 import functools
 import logging
 import os
@@ -44,7 +45,15 @@ def simple_diff(a, b, diffsonly=False):
 
     diff = ""
     for i in range(0, len(lines_a)):
-        if lines_a[i] != lines_b[i]:
+        try:
+            line_a = lines_a[i]
+        except IndexError:
+            line_a = ''
+        try:
+            line_b = lines_b[i]
+        except IndexError:
+            line_b = ''
+        if line_a != line_b:
             diff += "-%s%s" % (lines_a[i], os.linesep)
             diff += "+%s%s" % (lines_b[i], os.linesep)
             blankprinted = False
@@ -68,6 +77,7 @@ class MemoryDialog(wx.Dialog):
 
         self.text = wx.richtext.RichTextCtrl(
             self, style=wx.VSCROLL | wx.HSCROLL | wx.NO_BORDER)
+        self.text.SetEditable(False)
         sizer.Add(self.text, 1, wx.EXPAND)
 
         sizer.Add(wx.StaticLine(self), 0)
@@ -114,9 +124,10 @@ class MemoryDialog(wx.Dialog):
 
 
 class ChirpEditor(wx.Panel):
-    def __init__(self, parent, obj):
+    def __init__(self, parent, obj, labelfmt='%s'):
         super(ChirpEditor, self).__init__(parent, )
         self._obj = obj
+        self._labelfmt = labelfmt
         self._fixed_font = wx.Font(pointSize=10,
                                    family=wx.FONTFAMILY_TELETYPE,
                                    style=wx.FONTSTYLE_NORMAL,
@@ -124,12 +135,19 @@ class ChirpEditor(wx.Panel):
         self._changed_color = wx.Colour(0, 255, 0)
         self._error_color = wx.Colour(255, 0, 0)
 
+    def label(self, label):
+        return self._labelfmt % label
+
+    @property
+    def memobj(self):
+        return self._obj
+
     def refresh(self):
         """Called to refresh the widget from memory"""
         pass
 
     def set_up(self):
-        pass
+        wx.StaticText(self, label=repr(self))
 
     def _mark_changed(self, thing):
         thing.SetBackgroundColour(self._changed_color)
@@ -180,22 +198,62 @@ class ChirpEditor(wx.Panel):
 class ChirpStringEditor(ChirpEditor):
     def set_up(self):
         sizer = wx.BoxSizer(wx.HORIZONTAL)
-        self._entry = wx.TextCtrl(self, value=str(self._obj),
-                                  style=wx.TE_PROCESS_ENTER)
-        self._entry.SetMaxLength(len(self._obj))
-        self.SetSizer(sizer)
-        sizer.Add(self._entry, 1, wx.EXPAND)
+        self._len = len(self._obj)
 
-        self._entry.Bind(wx.EVT_TEXT, self._edited)
-        self._entry.Bind(wx.EVT_TEXT_ENTER, self._changed)
-        self._entry.SetEditable(not FROZEN)
+        self._strentry = wx.TextCtrl(self, value=str(self._obj),
+                                     style=wx.TE_PROCESS_ENTER)
+        self._strentry.SetMaxLength(self._len)
+
+        # Each char becomes two hex digits, plus one space between each
+        self._hexentry = wx.TextCtrl(self, style=wx.TE_PROCESS_ENTER)
+        self._hexentry.SetMaxLength(self._len * 2 + self._len - 1)
+        self._hexentry.Bind(wx.EVT_KEY_DOWN, self._hex_key)
+        self.hex_from_str()
+
+        self.SetSizer(sizer)
+        sizer.Add(self._strentry, 1, border=5, flag=wx.EXPAND | wx.LEFT)
+        sizer.Add(self._hexentry, 1, border=5, flag=wx.EXPAND | wx.LEFT)
+
+        self.Bind(wx.EVT_TEXT, self._edited)
+        self.Bind(wx.EVT_TEXT_ENTER, self._changed)
+        self._strentry.SetEditable(not FROZEN)
+        self._hexentry.SetEditable(not FROZEN)
+
+    def _hex_key(self, event):
+        key = event.GetKeyCode()
+        pos = self._hexentry.GetInsertionPoint()
+        cur = self._hexentry.GetRange(pos, pos + 1)
+        if key in (wx.WXK_DELETE, wx.WXK_BACK):
+            # Don't allow delete or backspace to actually remove anything
+            return
+        elif chr(key) in 'ABCDEF0123456789' and cur != ' ':
+            # Hex characters do the edit in place/overwrite
+            self._hexentry.Replace(pos, pos + 1, chr(key))
+            self.str_from_hex()
+            return
+        elif key in (wx.WXK_LEFT, wx.WXK_RIGHT, wx.WXK_RETURN,
+                     wx.WXK_NUMPAD_ENTER):
+            # Allow cursor movement
+            event.Skip()
+
+    def hex_from_str(self):
+        value = self._strentry.GetValue().ljust(self._len)[:self._len]
+        self._hexentry.ChangeValue(' '.join('%02X' % ord(x) for x in value))
+
+    def str_from_hex(self):
+        chars = ''.join(chr(int(x, 16))
+                        for x in self._hexentry.GetValue().split(' '))
+        self._strentry.ChangeValue(chars)
 
     def refresh(self):
-        self._entry.SetValue(str(self._obj))
-        self._mark_unchanged(self._entry, mem_changed=False)
+        self._strentry.SetValue(str(self._obj))
+        self.hex_from_str()
+        self._mark_unchanged(self._strentry, mem_changed=False)
 
     def _edited(self, event):
-        entry = event.GetEventObject()
+        entry = self._strentry
+        if event.GetEventObject() == entry:
+            self.hex_from_str()
         value = entry.GetValue()
         if len(value) == len(self._obj):
             self._mark_changed(entry)
@@ -204,7 +262,7 @@ class ChirpStringEditor(ChirpEditor):
 
     @common.error_proof()
     def _changed(self, event):
-        entry = event.GetEventObject()
+        entry = self._strentry
         value = entry.GetValue()
         self._obj.set_value(value)
         self._mark_unchanged(entry)
@@ -315,8 +373,8 @@ class ChirpBCDEditor(ChirpEditor):
 class ChirpBrowserPanel(wx.lib.scrolledpanel.ScrolledPanel):
     def __init__(self, parent, memobj):
         super(ChirpBrowserPanel, self).__init__(parent)
-        self._sizer = wx.FlexGridSizer(2)
-        self._sizer.AddGrowableCol(1)
+        self._sizer = wx.FlexGridSizer(3)
+        self._sizer.AddGrowableCol(2)
         self.SetSizer(self._sizer)
         self.SetupScrolling()
         self._parent = parent
@@ -331,8 +389,8 @@ class ChirpBrowserPanel(wx.lib.scrolledpanel.ScrolledPanel):
     def _panel_changed(self, event):
         wx.PostEvent(self, BrowserChanged(self.GetId()))
 
-    def _initialize(self):
-        for name, obj in self._memobj.items():
+    def _initialize(self, memobj, labelfmt='%s'):
+        for name, obj in memobj.items():
             editor = None
             if isinstance(obj, bitwise.arrayDataElement):
                 if isinstance(obj[0], bitwise.charDataElement):
@@ -341,10 +399,13 @@ class ChirpBrowserPanel(wx.lib.scrolledpanel.ScrolledPanel):
                     editor = ChirpBCDEditor(self, obj)
                 else:
                     self._parent.add_sub_panel(name, obj, self)
+                    editor = ChirpEditor(self, obj)
             elif isinstance(obj, bitwise.intDataElement):
-                editor = ChirpIntegerEditor(self, obj)
+                editor = ChirpIntegerEditor(self, obj, labelfmt=labelfmt)
             elif isinstance(obj, bitwise.structDataElement):
                 self._parent.add_sub_panel(name, obj, self)
+            elif isinstance(obj, bitwise.bcdDataElement):
+                editor = ChirpBCDEditor(self, obj)
             if editor:
                 self.add_editor(name, editor)
         self._initialized = True
@@ -354,9 +415,17 @@ class ChirpBrowserPanel(wx.lib.scrolledpanel.ScrolledPanel):
         self._parent.add_sub_panel(name, obj, parent)
 
     def selected(self):
+        fixed_font = wx.Font(pointSize=12,
+                             family=wx.FONTFAMILY_TELETYPE,
+                             style=wx.FONTSTYLE_NORMAL,
+                             weight=wx.FONTWEIGHT_NORMAL)
+        fixed_font = wx.Font(wx.FontInfo().Family(wx.FONTFAMILY_TELETYPE))
         if not self._initialized:
-            self._initialize()
-
+            self._initialize(self._memobj)
+            addr = wx.StaticText(
+                self,
+                label='0x%06x' % self._memobj.get_offset())
+            addr.SetFont(fixed_font)
             label = wx.StaticText(self)
             pos = wx.StaticText(
                 self, label='%i bits (%i bytes) at 0x%06x-0x%06x' % (
@@ -364,17 +433,27 @@ class ChirpBrowserPanel(wx.lib.scrolledpanel.ScrolledPanel):
                     self._memobj.size() // 8,
                     self._memobj.get_offset(),
                     self._memobj.get_offset() + self._memobj.size() // 8))
-            self._sizer.Add(label, 0, wx.ALIGN_CENTER)
-            self._sizer.Add(pos, 1, flag=wx.EXPAND)
+            self._sizer.Add(addr, 0, wx.ALIGN_LEFT)
+            self._sizer.Add(label, 1, wx.ALIGN_CENTER)
+            self._sizer.Add(pos, 2, flag=wx.EXPAND)
 
             for name, editor in self._editors.items():
+                addr = wx.StaticText(
+                    self,
+                    label='0x%06x' % editor.memobj.get_offset())
+                addr.SetFont(fixed_font)
                 editor.set_up()
-                label = wx.StaticText(self, label='%s: ' % name)
+                label = wx.StaticText(self, label=editor.label(name))
                 tt = wx.ToolTip(repr(editor))
+                label.SetFont(fixed_font)
                 label.SetToolTip(tt)
 
-                self._sizer.Add(label, 0, wx.ALIGN_CENTER)
-                self._sizer.Add(editor, 1, flag=wx.EXPAND)
+                self._sizer.Add(addr, 0, border=5,
+                                flag=wx.ALIGN_LEFT | wx.BOTTOM | wx.TOP)
+                self._sizer.Add(label, 0, border=5,
+                                flag=wx.ALIGN_CENTER | wx.ALL)
+                self._sizer.Add(editor, 1, border=5,
+                                flag=wx.EXPAND | wx.BOTTOM | wx.TOP)
         else:
             for editor in self._editors.values():
                 editor.refresh()
@@ -509,21 +588,51 @@ class FakeEchoSerial(FakeSerial):
             return b''
 
 
+class FakeErrorOpenSerial(FakeSerial):
+    def __init__(self, *a, **k):
+        raise Exception('Failed open')
+
+
+class IsssueModuleLoadError(Exception):
+    pass
+
+
 class IssueModuleLoader:
     def __init__(self, parent):
         self._parent = parent
         report.ensure_session()
         self.session = report.SESSION
 
-    def get_attachments_from_issue(self, issue):
+    def get_attachments_from_issue(self, issue_num):
         r = self.session.get(
-            'https://chirpmyradio.com/issues/%i.json' % issue,
+            'https://chirpmyradio.com/issues/%i.json' % issue_num,
             params={'include': 'attachments'})
         LOG.debug('Fetched attachments for issue %i (status %s)' % (
-            issue, r.status_code))
+            issue_num, r.status_code))
         r.raise_for_status()
-        data = r.json()['issue']['attachments']
-        return [a for a in data if
+        issue = r.json()['issue']
+        allowed_states = ['New', 'In Progress', 'Resolved', 'Incomplete',
+                          'Blocked']
+        if issue['status']['is_closed']:
+            # If it was closed in the last two weeks, consider the case where
+            # a user is waiting for the next build
+            recently_closed = (
+                datetime.datetime.fromisoformat(issue['closed_on'][:-1]) >
+                (datetime.datetime.now() - datetime.timedelta(days=14)))
+        else:
+            recently_closed = False
+        valid = (issue['status']['name'] in allowed_states
+                 and not issue['status']['is_closed']) or recently_closed
+        LOG.debug('Issue valid=%s recently_closed=%s state=%s' % (
+            valid, recently_closed, issue['status']['name']))
+        if not valid:
+            LOG.warning('Issue %i is in state %s', issue_num, issue['status'])
+            raise IsssueModuleLoadError(
+                _('Issue %i is not in a valid state to load '
+                  'modules. It is highly recommended that you not '
+                  'attempt to manually load modules from this '
+                  'issue as it is likely to cause problems.') % issue_num)
+        return [a for a in issue['attachments'] if
                 a['filename'].endswith('.py') and
                 a.get('content_type', '').startswith('text/') and
                 a['filesize'] < (256 * 1024)]
@@ -582,6 +691,10 @@ class IssueModuleLoader:
 
         try:
             attachments = self.get_attachments_from_issue(issue)
+        except IsssueModuleLoadError as e:
+            LOG.exception('Failed to load module from issue %i: %s' % (
+                issue, e))
+            raise
         except Exception as e:
             LOG.exception('Failed to load attachments from %i: %s' % (
                 issue, e))

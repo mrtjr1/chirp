@@ -21,7 +21,7 @@ from chirp.drivers import yaesu_clone
 from chirp import chirp_common, memmap, directory, bitwise, errors
 from chirp.settings import RadioSetting, RadioSettingGroup, \
     RadioSettingValueList, RadioSettingValueBoolean, \
-    RadioSettingValueString, RadioSettings
+    RadioSettingValueString, RadioSettings, RadioSettingValueFloat
 
 from collections import defaultdict
 
@@ -144,7 +144,8 @@ u8 checksum;
 
 MODES = ["FM", "AM", "NFM"]
 DUPLEX = ["", "", "-", "+", "split"]
-STEPS = [5.0, 10.0, 12.5, 15.0, 20.0, 25.0, 50.0, 100.0]
+STEPS = (5.0, 10.0, 12.5, 15.0, 20.0, 25.0, 50.0, 100.0)
+STEPS_8800 = (5.0, 10.0, 12.5, 15.0, 20.0, 25.0, 50.0)
 SKIPS = ["", "S", "P", ""]
 
 CHARSET = ["%i" % int(x) for x in range(0, 10)] + \
@@ -247,11 +248,37 @@ def set_freq(freq, obj, field):
     return freq
 
 
+def _decode_chars(inarr):
+    LOG.debug("@_decode_chars, type: %s" % type(inarr))
+    LOG.debug(inarr)
+    outstr = ""
+    for i in inarr:
+        if i == 0xFF:
+            break
+        outstr += CHARSET[i & 0x7F]
+    return outstr.rstrip()
+
+
+def _encode_chars(instr, length=16):
+    LOG.debug("@_encode_chars, type: %s" % type(instr))
+    LOG.debug(instr)
+    outarr = []
+    instr = str(instr)
+    for i in range(length):
+        if i < len(instr):
+            outarr.append(CHARSET.index(instr[i]))
+        else:
+            outarr.append(0xFF)
+    return outarr
+
+
 class FTx800Radio(yaesu_clone.YaesuCloneModeRadio):
     """Base class for FT-7800,7900,8800,8900 radios"""
     BAUD_RATE = 9600
     VENDOR = "Yaesu"
-    MODES = list(MODES)
+    MODES = MODES
+    STEPS = STEPS
+
     _block_size = 64
 
     POWER_LEVELS_VHF = [chirp_common.PowerLevel("Hi", watts=50),
@@ -297,10 +324,10 @@ class FTx800Radio(yaesu_clone.YaesuCloneModeRadio):
         rf.has_bank = False
         rf.has_ctone = False
         rf.has_dtcs_polarity = False
-        rf.valid_modes = MODES
+        rf.valid_modes = self.MODES
         rf.valid_tmodes = self.TMODES
         rf.valid_duplexes = ["", "-", "+", "split"]
-        rf.valid_tuning_steps = STEPS
+        rf.valid_tuning_steps = self.STEPS
         rf.valid_bands = [(108000000, 520000000), (700000000, 990000000)]
         rf.valid_skips = ["", "S", "P"]
         rf.valid_power_levels = self.POWER_LEVELS_VHF
@@ -385,6 +412,12 @@ class FTx800Radio(yaesu_clone.YaesuCloneModeRadio):
         flgidx = (mem.number - 1) % 4
         _flg["skip%i" % flgidx] = SKIPS.index(mem.skip)
 
+    def _get_mem_mode(self, mem, _mem):
+        mem.mode = self.MODES[_mem.mode]
+
+    def _set_mem_mode(self, mem, _mem):
+        _mem.mode = self.MODES.index(mem.mode)
+
     def get_memory(self, number):
         _mem = self._memobj.memory[number - 1]
 
@@ -397,10 +430,12 @@ class FTx800Radio(yaesu_clone.YaesuCloneModeRadio):
         mem.freq = get_freq(int(_mem.freq) * 10000)
         mem.rtone = chirp_common.TONES[_mem.tone]
         mem.tmode = self.TMODES[_mem.tmode]
-        mem.mode = self.MODES[_mem.mode]
+
+        self._get_mem_mode(mem, _mem)
+
         mem.dtcs = chirp_common.DTCS_CODES[_mem.dtcs]
         if self.get_features().has_tuning_step:
-            mem.tuning_step = STEPS[_mem.tune_step]
+            mem.tuning_step = self.STEPS[_mem.tune_step]
         mem.duplex = DUPLEX[_mem.duplex]
         mem.offset = self._get_mem_offset(mem, _mem)
         mem.name = self._get_mem_name(mem, _mem)
@@ -424,10 +459,12 @@ class FTx800Radio(yaesu_clone.YaesuCloneModeRadio):
         set_freq(mem.freq, _mem, "freq")
         _mem.tone = chirp_common.TONES.index(mem.rtone)
         _mem.tmode = self.TMODES.index(mem.tmode)
-        _mem.mode = self.MODES.index(mem.mode)
+
+        self._set_mem_mode(mem, _mem)
+
         _mem.dtcs = chirp_common.DTCS_CODES.index(mem.dtcs)
         if self.get_features().has_tuning_step:
-            _mem.tune_step = STEPS.index(mem.tuning_step)
+            _mem.tune_step = self.STEPS.index(mem.tuning_step)
         _mem.duplex = DUPLEX.index(mem.duplex)
         _mem.split = mem.duplex == "split" and int(mem.offset / 10000) or 0
         if mem.power:
@@ -543,28 +580,6 @@ class FT7800Radio(FTx800Radio):
         if memory.empty:
             self._wipe_memory_banks(memory)
         FTx800Radio.set_memory(self, memory)
-
-    def _decode_chars(self, inarr):
-        LOG.debug("@_decode_chars, type: %s" % type(inarr))
-        LOG.debug(inarr)
-        outstr = ""
-        for i in inarr:
-            if i == 0xFF:
-                break
-            outstr += CHARSET[i & 0x7F]
-        return outstr.rstrip()
-
-    def _encode_chars(self, instr, length=16):
-        LOG.debug("@_encode_chars, type: %s" % type(instr))
-        LOG.debug(instr)
-        outarr = []
-        instr = str(instr)
-        for i in range(length):
-            if i < len(instr):
-                outarr.append(CHARSET.index(instr[i]))
-            else:
-                outarr.append(0xFF)
-        return outarr
 
     def get_settings(self):
         _settings = self._memobj.settings
@@ -709,7 +724,7 @@ class FT7800Radio(FTx800Radio):
 
         _arts_cwid = self._memobj.arts_cwid
         cwid = RadioSettingValueString(
-                0, 16, self._decode_chars(_arts_cwid.get_value()))
+                0, 16, _decode_chars(_arts_cwid.get_value()))
         cwid.set_charset(CHARSET)
         arts.append(RadioSetting("arts_cwid", "CW ID", cwid))
 
@@ -778,7 +793,7 @@ class FT7800Radio(FTx800Radio):
                     continue
                 if setting == "arts_cwid":
                     oldval = self._memobj.arts_cwid
-                    newval = self._encode_chars(newval.get_value(), 6)
+                    newval = _encode_chars(newval.get_value(), 6)
                     self._memobj.arts_cwid = newval
                     continue
                 # normal settings
@@ -791,12 +806,67 @@ class FT7800Radio(FTx800Radio):
                 raise
 
 
+MEM_FORMAT_8800_COMMON = """
+#seekto 0x0009;
+struct {
+    bbcd  vfo_left[3];
+} current_state;
+
+#seekto 0x0032;
+struct {
+    u8  ukn32;
+    u8  main:1,
+        ukn33_a:1,
+        ars:1,
+        ukn33_b:2,
+        vfo_band_edge:1,
+        ukn33_c:2;
+    u8  ukn34;
+    u8  ukn35;
+    u8  ukn36;
+    u8  ukn37;
+    u8  ukn38;
+    u8  ukn39;
+    u8  apo;
+    u8  ukn3b;
+    u8  ukn3c_a:3,
+        arts_mode:1,
+        ukn3c_b:2,
+        lockt:2;
+    u8  prog_p1;
+    u8  prog_p2;
+    u8  prog_p3;
+    u8  prog_p4;
+    u8  ukn41;
+    u8  ukn42;
+    u8  arts_cwid_enable:1,
+        lock:1,
+        ukn43:4,
+        backlight:2;
+    u8  ukn44a:2,
+        beep:1,
+        ukn44b:1,
+        key_mod:1,
+        ukn44c:3;
+    u8  ukn45a:3,
+        mute:2,
+        ukn45b:3;
+    u8  ukn46a:3,
+        mic:1,
+        ukn56b:4;
+    u8  ukn47;
+    u8  arts_cwid[6];
+
+} settings;
+"""
+
 MEM_FORMAT_8800 = """
 #seekto 0x%X;
 struct {
   u8 used:1,
      unknown1:1,
-     mode:2,
+     wid_nar:1,
+     am:1,
      unknown2:1,
      duplex:3;
   bbcd freq[3];
@@ -811,7 +881,7 @@ struct {
   u8 namevalid:1,
      dtcs:7;
   u8 name[6];
-} memory[500];
+} memory[512];
 
 #seekto 0x%X;
 struct {
@@ -824,7 +894,7 @@ struct {
      skip1:2,
      skip2:2,
      skip3:2;
-} flags[250];
+} flags[256];
 
 #seekto 0x7B48;
 u8 checksum;
@@ -849,6 +919,7 @@ class FT8800Radio(FTx800Radio):
     _memstart = 0x0000
 
     TMODES = ["", "Tone", "TSQL", "DTCS"]
+    STEPS = STEPS_8800
 
     @classmethod
     def get_prompts(cls):
@@ -880,7 +951,8 @@ class FT8800Radio(FTx800Radio):
         rf = FTx800Radio.get_features(self)
         rf.has_sub_devices = self.VARIANT == ""
         rf.has_bank = True
-        rf.memory_bounds = (1, 500)
+        rf.memory_bounds = (1, 512)
+        rf.has_settings = True
         return rf
 
     def get_sub_devices(self):
@@ -896,11 +968,325 @@ class FT8800Radio(FTx800Radio):
 
     def process_mmap(self):
         if not self._memstart:
+            self._memobj = bitwise.parse(MEM_FORMAT_8800_COMMON, self._mmap)
             return
 
+        # Memory format for the sub devices
         self._memobj = bitwise.parse(MEM_FORMAT_8800 % (self._memstart,
                                                         self._bankstart),
                                      self._mmap)
+
+    def _get_mem_offset(self, mem, _mem):
+        if mem.duplex == "split":
+            return get_freq(int(_mem.split) * 10000)
+
+        # The offset is packed into the upper two bits of the last four
+        # bytes of the name (?!)
+        val = 0
+        for i in _mem.name[2:6]:
+            val <<= 2
+            val |= (i & 0xC0) >> 6
+
+        return (val * 5) * 10000
+
+    def _set_mem_offset(self, mem, _mem):
+        if mem.duplex == "split":
+            set_freq(mem.offset, _mem, "split")
+            return
+
+        val = int(mem.offset / 10000) // 5
+        for i in reversed(list(range(2, 6))):
+            _mem.name[i] = (_mem.name[i] & 0x3F) | ((val & 0x03) << 6)
+            val >>= 2
+
+    def _get_mem_name(self, mem, _mem):
+        name = ""
+        if _mem.namevalid:
+            for i in _mem.name:
+                index = int(i) & 0x3F
+                if index < len(CHARSET):
+                    name += CHARSET[index]
+
+        return name.rstrip()
+
+    def _set_mem_name(self, mem, _mem):
+        _mem.name = [CHARSET.index(x) for x in mem.name.ljust(6)[:6]]
+        _mem.namevalid = 1
+        _mem.nameused = bool(mem.name.rstrip())
+
+    def _get_mem_mode(self, mem, _mem):
+        if _mem.am:
+            mem.mode = "AM"
+        else:
+            mem.mode = "NFM" if _mem.wid_nar else "FM"
+
+    def _set_mem_mode(self, mem, _mem):
+        if mem.mode == "AM":
+            _mem.am = True
+            _mem.wid_nar = False
+
+        else:
+            _mem.am = False
+            _mem.wid_nar = mem.mode == "NFM"
+
+    def get_settings(self):
+        _settings = self._memobj.settings
+        _cs = self._memobj.current_state
+        basic = RadioSettingGroup("basic", "Basic")
+        dtmf = RadioSettingGroup("dtmf", "DTMF")
+        arts = RadioSettingGroup("arts", "ARTS")
+        prog = RadioSettingGroup("prog", "Programmable Buttons")
+
+        top = RadioSettings(basic, dtmf, arts, prog)
+
+        basic.append(RadioSetting(
+            "apo", "APO time (hrs)",
+            RadioSettingValueList(
+                ["off"] + ["%0.1f" % (t / 60.0)
+                           for t in range(30, 750, 30)],
+                current_index=_settings.apo)))
+
+        basic.append(RadioSetting("beep", "Beep: Key",
+                                  RadioSettingValueBoolean(_settings.beep)))
+        basic.append(RadioSetting("main", "Main: active device",
+                                  RadioSettingValueList(
+                                      ["Right", "Left"],
+                                      current_index=_settings.main)))
+        basic.append(RadioSetting("backlight", "Backlight",
+                                  RadioSettingValueList(
+                                      ["off", "dim 1", "dim 2", "dim 3"],
+                                      current_index=_settings.backlight)))
+        basic.append(RadioSetting("vfo_band_edge",
+                                  "BAND: VFO remain within band",
+                                  RadioSettingValueList(
+                                      ["BND. ON", "BND. OFF"],
+                                      current_index=_settings.vfo_band_edge)))
+        # 123.455  -> 0812345
+        # 999.9875 -> 1299998
+        # 155.2875 -> 1215528
+        # 108.0000 -> 0010800
+        basic.append(RadioSetting("vfo_left", "VFO: left",
+                                  RadioSettingValueFloat(
+                                      0, 9**20, int(_cs.vfo_left) / 100)))
+        basic.append(RadioSetting("key_mod",
+                                  ("key functions for “right” band function "
+                                   "switches"),
+                                  RadioSettingValueList(
+                                      ["KEY1", "KEY2"],
+                                      current_index=_settings.key_mod)))
+        basic.append(RadioSetting("lock", "Lock: key/button",
+                                  RadioSettingValueBoolean(_settings.lock)))
+        basic.append(RadioSetting("lockt", "Lock: PTT",
+                                  RadioSettingValueList(
+                                      ["OFF", "BAND_R", "BAND_L", "BOTH"],
+                                      current_index=_settings.lockt)))
+        basic.append(RadioSetting("mute", "Audio Mute",
+                                  RadioSettingValueList(
+                                      ["OFF", "TX", "RX", "TX/RX"],
+                                      current_index=_settings.mute)))
+        basic.append(RadioSetting("mic", "Mic: type",
+                                  RadioSettingValueList(
+                                      ["MH-42", "MH-48"],
+                                      current_index=_settings.mic)))
+
+        # arts tab
+        arts.append(RadioSetting("arts_mode", "ARTS beep",
+                                 RadioSettingValueList(
+                                    ["off", "in range", "always"],
+                                    current_index=_settings.arts_mode)))
+        arts.append(RadioSetting("arts_cwid_enable", "CW ID Enable",
+                                 RadioSettingValueBoolean(
+                                     _settings.arts_cwid_enable)))
+        cwid = RadioSettingValueString(0, 16,
+                                       _decode_chars(
+                                           _settings.arts_cwid.get_value()))
+        cwid.set_charset(CHARSET)
+        arts.append(RadioSetting("arts_cwid", "CW ID", cwid))
+
+        # Prog buttons
+        opts = [
+            "Repeater",
+            "Priority",
+            "Low",
+            "Tone",
+            "MHz",
+            "Reverse",
+            "Home",
+            "Band",
+            "VFO/MR",
+            "Scan",
+            "Sql Off",
+            "TCall (1750Hz)",
+        ]
+
+        for n in range(1, 5):
+            prog.append(
+                RadioSetting(
+                    f"prog_p{n}", f"P{n}",
+                    RadioSettingValueList(
+                        opts,
+                        current_index=getattr(_settings, f"prog_p{n}") - 26)))
+
+        return top
+
+    def set_settings(self, uisettings):
+        for element in uisettings:
+            if not isinstance(element, RadioSetting):
+                self.set_settings(element)
+                continue
+
+            if not element.changed():
+                continue
+
+            try:
+                _settings = self._memobj.settings
+                _cs = self._memobj.current_state
+                setting = element.get_name()
+                newval = element.value
+
+                if setting.startswith("vfo_"):
+                    setattr(_cs, setting, newval * 100)
+                    continue
+
+                if setting == "arts_cwid":
+                    oldval = _settings.arts_cwid
+                    newval = _encode_chars(newval.get_value(), 6)
+                    _settings.arts_cwid = newval
+                    continue
+
+                if setting.startswith("prog_p"):
+                    setattr(_settings, setting, newval + 26)
+                    continue
+
+                # normal settings
+                oldval = getattr(_settings, setting)
+
+                LOG.debug("Setting %s(%s) <= %s" % (setting, oldval, newval))
+
+                setattr(_settings, setting, newval)
+
+            except Exception:
+                LOG.debug(element.get_name())
+                raise
+
+
+class FT8800RadioLeft(FT8800Radio):
+    """Yaesu FT-8800 Left VFO subdevice"""
+
+    VARIANT = "Left"
+    _memstart = 0x0948
+    _bankstart = 0x4BC8
+
+    def get_features(self):
+        rf = super().get_features()
+        rf.has_settings = False
+        return rf
+
+
+class FT8800RadioRight(FT8800Radio):
+    """Yaesu FT-8800 Right VFO subdevice"""
+    VARIANT = "Right"
+    _memstart = 0x2948
+    _bankstart = 0x4BC8
+
+    def get_features(self):
+        rf = super().get_features()
+        rf.has_settings = False
+        return rf
+
+
+MEM_FORMAT_8900 = """
+#seekto 0x0708;
+struct {
+  u8 used:1,
+     skip:2,
+     sub_used:1,
+     unknown2:1,
+     duplex:3;
+  bbcd freq[3];
+  u8 mode:2,
+     nameused:1,
+     unknown4:1,
+     power:2,
+     tmode:2;
+  bbcd split[3];
+  u8 unknown5:2,
+     tone:6;
+  u8 namevalid:1,
+     dtcs:7;
+  u8 name[6];
+} memory[799];
+
+#seekto 0x51C8;
+struct {
+  u8 skip0:2,
+     skip1:2,
+     skip2:2,
+     skip3:2;
+} flags[400];
+
+#seekto 0x7B48;
+u8 checksum;
+"""
+
+
+@directory.register
+class FT8900Radio(FTx800Radio):
+    """Yaesu FT-8900"""
+    MODEL = "FT-8900"
+
+    _model = b"AH008"
+    _memsize = 14793
+    _block_lengths = [8, 14784, 1]
+
+    MODES = ["FM", "NFM", "AM"]
+    TMODES = ["", "Tone", "TSQL", "DTCS"]
+    STEPS = STEPS
+
+    @classmethod
+    def get_prompts(cls):
+        rp = chirp_common.RadioPrompts()
+        rp.pre_download = _(
+            "1. Turn radio off.\n"
+            "2. Connect cable to DATA jack.\n"
+            "3. Press and hold in the \"left\" [V/M] key while turning the\n"
+            "     radio on.\n"
+            "4. Rotate the \"right\" DIAL knob to select \"CLONE START\".\n"
+            "5. Press the [SET] key. The display will disappear\n"
+            "     for a moment, then the \"CLONE\" notation will appear.\n"
+            "6. <b>After clicking OK</b>, press the \"left\" [V/M] key to\n"
+            "     send image.\n")
+        rp.pre_upload = _(
+            "1. Turn radio off.\n"
+            "2. Connect cable to DATA jack.\n"
+            "3. Press and hold in the \"left\" [V/M] key while turning the\n"
+            "     radio on.\n"
+            "4. Rotate the \"right\" DIAL knob to select \"CLONE START\".\n"
+            "5. Press the [SET] key. The display will disappear\n"
+            "     for a moment, then the \"CLONE\" notation will appear.\n"
+            "6. Press the \"left\" [LOW] key (\"CLONE -RX-\" will appear"
+            " on\n"
+            "     the display).\n")
+        return rp
+
+    def process_mmap(self):
+        self._memobj = bitwise.parse(MEM_FORMAT_8900, self._mmap)
+
+    def get_features(self):
+        rf = FTx800Radio.get_features(self)
+        rf.valid_modes = self.MODES
+        rf.valid_bands = [(28000000,  29700000),
+                          (50000000,  54000000),
+                          (108000000, 180000000),
+                          (320000000, 480000000),
+                          (700000000, 985000000)]
+        rf.memory_bounds = (1, 799)
+        rf.has_tuning_step = False
+
+        return rf
+
+    def _checksums(self):
+        return [yaesu_clone.YaesuChecksum(0x0000, 0x39C7)]
 
     def _get_mem_offset(self, mem, _mem):
         if mem.duplex == "split":
@@ -940,103 +1326,11 @@ class FT8800Radio(FTx800Radio):
         _mem.namevalid = 1
         _mem.nameused = bool(mem.name.rstrip())
 
-
-class FT8800RadioLeft(FT8800Radio):
-    """Yaesu FT-8800 Left VFO subdevice"""
-    VARIANT = "Left"
-    _memstart = 0x0948
-    _bankstart = 0x4BC8
-
-
-class FT8800RadioRight(FT8800Radio):
-    """Yaesu FT-8800 Right VFO subdevice"""
-    VARIANT = "Right"
-    _memstart = 0x2948
-    _bankstart = 0x4BC8
-
-
-MEM_FORMAT_8900 = """
-#seekto 0x0708;
-struct {
-  u8 used:1,
-     skip:2,
-     sub_used:1,
-     unknown2:1,
-     duplex:3;
-  bbcd freq[3];
-  u8 mode:2,
-     nameused:1,
-     unknown4:1,
-     power:2,
-     tmode:2;
-  bbcd split[3];
-  u8 unknown5:2,
-     tone:6;
-  u8 namevalid:1,
-     dtcs:7;
-  u8 name[6];
-} memory[799];
-
-#seekto 0x51C8;
-struct {
-  u8 skip0:2,
-     skip1:2,
-     skip2:2,
-     skip3:2;
-} flags[400];
-
-#seekto 0x7B48;
-u8 checksum;
-"""
-
-
-@directory.register
-class FT8900Radio(FT8800Radio):
-    """Yaesu FT-8900"""
-    MODEL = "FT-8900"
-
-    _model = b"AH008"
-    _memsize = 14793
-    _block_lengths = [8, 14784, 1]
-
-    MODES = ["FM", "NFM", "AM"]
-
-    def get_bank_model(self):
-        return
-
-    def process_mmap(self):
-        self._memobj = bitwise.parse(MEM_FORMAT_8900, self._mmap)
-
-    def get_features(self):
-        rf = FT8800Radio.get_features(self)
-        rf.has_sub_devices = False
-        rf.has_bank = False
-        rf.valid_modes = self.MODES
-        rf.valid_bands = [(28000000,  29700000),
-                          (50000000,  54000000),
-                          (108000000, 180000000),
-                          (320000000, 480000000),
-                          (700000000, 985000000)]
-        rf.memory_bounds = (1, 799)
-        rf.has_tuning_step = False
-
-        return rf
-
-    def _checksums(self):
-        return [yaesu_clone.YaesuChecksum(0x0000, 0x39C7)]
-
     def _get_mem_skip(self, mem, _mem):
         return SKIPS[_mem.skip]
 
     def _set_mem_skip(self, mem, _mem):
         _mem.skip = SKIPS.index(mem.skip)
-
-    def get_memory(self, number):
-        mem = super().get_memory(number)
-
-        _mem = self._memobj.memory[number - 1]
-
-        return mem
 
     def set_memory(self, mem):
         FT8800Radio.set_memory(self, mem)

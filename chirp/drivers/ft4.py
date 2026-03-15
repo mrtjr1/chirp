@@ -345,13 +345,15 @@ def startcomms(radio, direction):
     if id_response != radio.id_str:
         substr0 = radio.id_str[:radio.id_str.find(b'\x00')]
         if id_response[:id_response.find(b'\x00')] != substr0:
-            msg = "ID mismatch. Expected" + util.hexprint(radio.id_str)
-            msg += ", Received:" + util.hexprint(id_response_mod)
+            msg = "ID mismatch.\nExpected:\n{}Received:\n{}".format(
+                util.hexprint(radio.id_str), util.hexprint(id_response_mod)
+                )
             LOG.warning(msg)
             raise errors.RadioError("Incorrect ID read from radio.")
         else:
-            msg = "ID suspect. Expected" + util.hexprint(radio.id_str)
-            msg += ", Received:" + util.hexprint(id_response_mod)
+            msg = "ID suspect.\nExpected:\n{}Received:\n{}".format(
+                util.hexprint(radio.id_str), util.hexprint(id_response_mod)
+                )
             LOG.warning(msg)
     return progressbar
 
@@ -1217,6 +1219,11 @@ class YaesuSC35GenericRadio(chirp_common.CloneModeRadio,
             if regtype in ["memory", "pms"]:
                 store_bit(self._memobj.enable, ndx, False)
                 return
+
+        # Clear unknowns
+        _mem.unused = 0
+        _mem.unknown1 = 0
+        _mem.unknown2 = 0
 
         txfreq = mem.freq / 10     # really. RX freq is used for TX base
         _mem.freq = txfreq

@@ -1,4 +1,4 @@
-# Copyright 2016-2023:
+# Copyright 2016-2026:
 # * Pavel Milanes CO7WT, <pavelmc@gmail.com>
 # * Jim Unroe KC9HI, <rock.unroe@gmail.com>
 #
@@ -140,7 +140,7 @@ LIST_2TONE_DEC = ["A-B", "A-C", "A-D",
 LIST_2TONE_RESPONSE = ["None", "Alert", "Transpond", "Alert+Transpond"]
 
 # This is a general serial timeout for all serial read functions.
-STIMEOUT = 0.25
+STIMEOUT = 1.5
 
 # this var controls the verbosity in the debug and by default it's low (False)
 # make it True and you will to get a very verbose debug.log
@@ -235,6 +235,7 @@ KT8900_fp4 = b"M2G304"
 KT8900_fp5 = b"M2G314"
 KT8900_fp6 = b"M2G424"
 KT8900_fp7 = b"M27184"
+KT8900_fp8 = b"M2C194"
 
 # KT8900R
 KT8900R_fp = b"M3G1F4"
@@ -260,6 +261,7 @@ KT7900D_fp6 = b"VC5264"
 KT7900D_fp7 = b"VC9204"
 KT7900D_fp8 = b"VC9214"
 KT7900D_fp9 = b"VC5302"
+KT7900D_fp10 = b"VC5254"
 
 # QB25 (quad band) - a clone of KT7900D
 QB25_fp = b"QB-25"
@@ -270,6 +272,7 @@ KT8900D_fp1 = b"VC8632"
 KT8900D_fp2 = b"VC3402"
 KT8900D_fp3 = b"VC7062"
 KT8900D_fp4 = b"VC3062"
+KT8900D_fp5 = b"VC8192"
 
 # LUITON LT-588UV
 LT588UV_fp = b"V2G1F4"
@@ -299,6 +302,9 @@ KTWP12_fp = b"WP3094"
 # Anysecu WP-9900
 WP9900_fp = b"WP3094"
 
+# QYT KT-5000
+KT5000_fp = b"WP9114"
+
 
 # ### MAGICS
 # for the Waccom Mini-8900
@@ -324,33 +330,8 @@ MSTRING_GMRS20V2 = b"\x55\x20\x21\x03\x27\xFF\xDC\x02"
 MSTRING_KT8R = b"\x55\x20\x17\x07\x03\xFF\xDC\x02"
 # for the QYT KT-WP12, KT-9900 and Anysecu WP-9900
 MSTRING_KTWP12 = b"\x55\x20\x18\x11\x02\xFF\xDC\x02"
-
-
-def _clean_buffer(radio):
-    """Cleaning the read serial buffer, hard timeout to survive an infinite
-    data stream"""
-
-    # touching the serial timeout to optimize the flushing
-    # restored at the end to the default value
-    radio.pipe.timeout = 0.1
-    dump = b"1"
-    datacount = 0
-
-    try:
-        while len(dump) > 0:
-            dump = radio.pipe.read(100)
-            datacount += len(dump)
-            # hard limit to survive a infinite serial data stream
-            # 5 times bigger than a normal rx block (69 bytes)
-            if datacount > 345:
-                seriale = "Please check your serial port selection."
-                raise errors.RadioError(seriale)
-
-        # restore the default serial timeout
-        radio.pipe.timeout = STIMEOUT
-
-    except Exception:
-        raise errors.RadioError("Unknown error cleaning the serial buffer")
+# for the QYT KT-5000
+MSTRING_KT5000 = b"\x55\x20\x21\x01\x23\xFF\xDC\x02"
 
 
 def _rawrecv(radio, amount):
@@ -372,8 +353,8 @@ def _rawrecv(radio, amount):
 
         # notice on the logs if short
         if len(data) < amount:
-            LOG.warn("Short reading %d bytes from the %d requested." %
-                     (len(data), amount))
+            LOG.warning("Short reading %d bytes from the %d requested." %
+                        (len(data), amount))
 
     except:
         raise errors.RadioError("Error reading data from radio")
@@ -411,11 +392,11 @@ def _recv(radio, addr):
     # Get the full 69 bytes at a time to reduce load
     # 1 byte ACK + 4 bytes header + 64 bytes of data (BLOCK_SIZE)
 
-    # get the whole block
-    block = _rawrecv(radio, BLOCK_SIZE + 5)
+    # get the whole block Bug #11851 BLOCKSIZE fix for KT-8900D
+    block = _rawrecv(radio, radio._block_size + 5)
 
-    # basic check
-    if len(block) < (BLOCK_SIZE + 5):
+    # basic check Bug #11851 BLOCKSIZE fix for KT-8900D
+    if len(block) < (radio._block_size + 5):
         raise errors.RadioError("Short read of the block 0x%04x" % addr)
 
     # checking for the ack
@@ -424,7 +405,7 @@ def _recv(radio, addr):
 
     # header validation
     c, a, l = struct.unpack(">BHB", block[1:5])
-    if a != addr or l != BLOCK_SIZE or c != ord("X"):
+    if a != addr or l != radio._block_size or c != ord("X"):
         LOG.debug("Invalid header for block 0x%04x" % addr)
         LOG.debug("CMD: %s  ADDR: %04x  SIZE: %02x" % (c, a, l))
         raise errors.RadioError("Invalid header for block 0x%04x:" % addr)
@@ -439,8 +420,10 @@ def _do_ident(radio, status, upload=False):
     radio.pipe.baudrate = 9600
     radio.pipe.parity = "N"
 
-    # lengthen the timeout here as these radios are resetting due to timeout
-    radio.pipe.timeout = 0.75
+    # set timeout for download
+    radio.pipe.timeout = STIMEOUT
+
+    radio.pipe.reset_input_buffer()
 
     # send the magic word
     _send(radio, radio._magic)
@@ -483,9 +466,6 @@ def _do_ident(radio, status, upload=False):
     _send(radio, frame)
     id2 = _rawrecv(radio, 21)
 
-    # restore the default serial timeout
-    radio.pipe.timeout = STIMEOUT
-
     # checking for the ack
     if id2[:1] not in b"\x06\x05":
         raise errors.RadioError("Bad ack from radio")
@@ -500,6 +480,12 @@ def _do_ident(radio, status, upload=False):
     # also the first block of TX must no have the ACK at the beginning
     # see _upload for this.
     if upload is True:
+        # set timeout for upload
+        radio.pipe.timeout = 0.5
+
+        # pause here for the radio to catch up
+        sleep(0.3)
+
         # send an ACK
         _send(radio, b"\x06")
 
@@ -534,16 +520,18 @@ def _download(radio):
     # put radio in program mode and identify it
     _do_ident(radio, status)
 
-    # reset the progress bar in the UI
-    status.max = MEM_SIZE // BLOCK_SIZE
+    radio.pipe.reset_input_buffer()
+
+    # reset the progress bar in the UI Bug #11851 BLOCKSIZE fix for KT-8900D
+    status.max = MEM_SIZE // radio._block_size
     status.msg = "Cloning from radio..."
     status.cur = 0
     radio.status_fn(status)
 
     data = b""
-    for addr in range(0, MEM_SIZE, BLOCK_SIZE):
+    for addr in range(0, MEM_SIZE, radio._block_size):
         # sending the read request
-        _send(radio, _make_frame("S", addr, BLOCK_SIZE))
+        _send(radio, _make_frame("S", addr, radio._block_size))
 
         # read
         d = _recv(radio, addr)
@@ -634,26 +622,12 @@ def _decode_ranges(low, high):
     return (ilow, ihigh)
 
 
-def _split(rf, f1, f2):
-    """Returns False if the two freqs are in the same band (no split)
-    or True otherwise"""
-
-    # determine if the two freqs are in the same band
-    for low, high in rf.valid_bands:
-        if f1 >= low and f1 <= high and \
-                f2 >= low and f2 <= high:
-            # if the two freqs are on the same Band this is not a split
-            return False
-
-    # if you get here is because the freq pairs are split
-    return True
-
-
 class BTechMobileCommon(chirp_common.CloneModeRadio,
                         chirp_common.ExperimentalRadio):
     """BTECH's UV-5001 and alike radios"""
     VENDOR = "BTECH"
     MODEL = ""
+    _block_size = BLOCK_SIZE  # Bug 11851 should default to BLOCK_SIZE
     IDENT = ""
     BANDS = 2
     COLOR_LCD = False
@@ -849,8 +823,8 @@ class BTechMobileCommon(chirp_common.CloneModeRadio,
             # TX freq set
             offset = (int(_mem.txfreq) * 10) - mem.freq
             if offset != 0:
-                if _split(self.get_features(), mem.freq, int(
-                          _mem.txfreq) * 10):
+                if chirp_common.is_split(self.get_features().valid_bands,
+                                         mem.freq, int(_mem.txfreq) * 10):
                     mem.duplex = "split"
                     mem.offset = int(_mem.txfreq) * 10
                 elif offset < 0:
@@ -3584,7 +3558,8 @@ class KT9800(BTech):
                KT8900_fp4,
                KT8900_fp5,
                KT8900_fp6,
-               KT8900_fp7]
+               KT8900_fp7,
+               KT8900_fp8]
     # Clones
     ALIASES = [JT6188Mini, SSGT890, ZastoneMP300]
 
@@ -4072,7 +4047,7 @@ class KT7900D(BTechColor):
     _magic = MSTRING_KT8900D
     _fileid = [KT7900D_fp, KT7900D_fp1, KT7900D_fp2, KT7900D_fp3, KT7900D_fp4,
                KT7900D_fp5, KT7900D_fp6, KT7900D_fp7, KT7900D_fp8, KT7900D_fp9,
-               QB25_fp]
+               QB25_fp, KT7900D_fp10]
     # Clones
     ALIASES = [SKT8900D, QB25]
 
@@ -4082,12 +4057,14 @@ class KT8900D(BTechColor):
     """QYT KT8900D"""
     VENDOR = "QYT"
     MODEL = "KT8900D"
+    _block_size = 0x10   # Bug 11851 BLOCKSIZE fix for KT-8900D
     BANDS = 2
     LIST_TMR = LIST_TMR15
     _vhf_range = (136000000, 175000000)
     _uhf_range = (400000000, 481000000)
     _magic = MSTRING_KT8900D
-    _fileid = [KT8900D_fp4, KT8900D_fp3, KT8900D_fp2, KT8900D_fp1, KT8900D_fp]
+    _fileid = [KT8900D_fp5, KT8900D_fp4, KT8900D_fp3, KT8900D_fp2, KT8900D_fp1,
+               KT8900D_fp]
 
     # Clones
     ALIASES = [OTGRadioV1]
@@ -5746,6 +5723,37 @@ class WP9900(BTechColorWP):
 
         # load specific parameters from the radio image
         self.set_options()
+
+
+@directory.register
+class KT5000(BTechColorWP):
+    """QYT KT-5000"""
+    # TODO: memory map is not EXACTLY the same as in WP12. E.g. setting
+    #       "C display mode" overwrites VOX setting
+    VENDOR = "QYT"
+    MODEL = "KT-5000"
+    BANDS = 2
+    UPLOAD_MEM_SIZE = 0X3100
+    _power_levels = [chirp_common.PowerLevel("High", watts=25),
+                     chirp_common.PowerLevel("Low", watts=5)]
+    _upper = 199
+    _magic = MSTRING_KT5000
+    _fileid = [KT5000_fp]
+    _gmrs = False
+
+    def process_mmap(self):
+        """Process the mem map into the mem object"""
+
+        # Get it
+        self._memobj = bitwise.parse(COLOR9900_MEM_FORMAT, self._mmap)
+
+        # load specific parameters from the radio image
+        self.set_options()
+
+    def get_features(self):
+        rf = super().get_features()
+        rf.has_settings = False
+        return rf
 
 
 @directory.register

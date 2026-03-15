@@ -5,6 +5,7 @@ from unittest import mock
 
 from chirp import chirp_common
 from chirp import errors
+from chirp.wxui import serialtrace
 from tests import base
 
 LOG = logging.getLogger(__name__)
@@ -14,8 +15,14 @@ class SerialException(Exception):
     pass
 
 
-class SerialNone:
+class SerialNone(serialtrace.SerialTrace):
     def flush(self):
+        pass
+
+    def reset_input_buffer(self):
+        pass
+
+    def reset_output_buffer(self):
         pass
 
     def inWaiting(self):
@@ -107,12 +114,12 @@ class TestCaseClone(base.DriverTest):
         self.radio._mmap = orig_mmap
         self.radio.status_fn = lambda s: True
 
-        msg = ('Clone should have failed and raised an exception '
+        msg = ('Clone in should have failed and raised an exception '
                'that inherits from RadioError')
         with self.assertRaises(errors.RadioError, msg=msg):
             self.radio.sync_in()
 
-        msg = ('Clone should have failed and raised an exception '
+        msg = ('Clone out should have failed and raised an exception '
                'that inherits from RadioError')
         with self.assertRaises(errors.RadioError, msg=msg):
             self.radio.sync_out()

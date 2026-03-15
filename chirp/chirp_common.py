@@ -417,7 +417,7 @@ class Memory:
             if callable(valid):
                 if not valid(val):
                     raise ValueError("`%s' is not a valid value for `%s'" % (
-                                         val, name))
+                        val, name))
             elif val not in self._valid_map[name]:
                 raise ValueError("`%s' is not in valid list: %s" %
                                  (val, self._valid_map[name]))
@@ -523,7 +523,7 @@ class Memory:
         self.name = vals[1]
 
         try:
-            self.freq = float(vals[2])
+            self.freq = to_MHz(float(vals[2]))
         except Exception:
             raise errors.InvalidDataError("Frequency is not a valid number")
 
@@ -533,7 +533,7 @@ class Memory:
             raise errors.InvalidDataError("Duplex is not +,-, or empty")
 
         try:
-            self.offset = float(vals[4])
+            self.offset = to_MHz(float(vals[4]))
         except Exception:
             raise errors.InvalidDataError("Offset is not a valid number")
 
@@ -563,30 +563,32 @@ class Memory:
         if self.dtcs not in DTCS_CODES:
             raise errors.InvalidDataError("DTCS code is not valid")
 
-        try:
-            self.rx_dtcs = int(vals[8], 10)
-        except Exception:
-            raise errors.InvalidDataError("DTCS Rx code is not a valid number")
-        if self.rx_dtcs not in DTCS_CODES:
-            raise errors.InvalidDataError("DTCS Rx code is not valid")
-
         if vals[9] in ["NN", "NR", "RN", "RR"]:
             self.dtcs_polarity = vals[9]
         else:
             raise errors.InvalidDataError("DtcsPolarity is not valid")
 
-        if vals[10] in MODES:
-            self.mode = vals[10]
+        try:
+            self.rx_dtcs = int(vals[10], 10)
+        except Exception:
+            raise errors.InvalidDataError("DTCS Rx code is not a valid number")
+        if self.rx_dtcs not in DTCS_CODES:
+            raise errors.InvalidDataError("DTCS Rx code is not valid")
+
+        self.cross_mode = vals[11]
+
+        if vals[12] in MODES:
+            self.mode = vals[12]
         else:
-            raise errors.InvalidDataError("Mode is not valid")
+            raise errors.InvalidDataError("Mode %r is not valid" % vals[10])
 
         try:
-            self.tuning_step = float(vals[11])
+            self.tuning_step = float(vals[13])
         except Exception:
             raise errors.InvalidDataError("Tuning step is invalid")
 
         try:
-            self.skip = vals[12]
+            self.skip = vals[14]
         except Exception:
             raise errors.InvalidDataError("Skip value is not valid")
 
@@ -758,6 +760,49 @@ class BankModel(MappingModel):
         super(BankModel, self).__init__(radio, name)
 
 
+class StaticBank(Bank):
+    pass
+
+
+class StaticBankModel(BankModel):
+    MSG = 'This radio has fixed banks and does not allow reassignment'
+    channelAlwaysHasBank = True
+
+    """A BankModel that shows a static mapping but does not allow changes."""
+
+    def __init__(self, radio, name='Banks', banks=10):
+        super().__init__(radio, name=name)
+        self._num_banks = banks
+        self._rf = radio.get_features()
+        self._banks = []
+        for i in range(self._num_banks):
+            self._banks.append(StaticBank(self, i + 1, 'Bank'))
+
+    def get_num_mappings(self):
+        return self._num_banks
+
+    def get_mappings(self):
+        return self._banks
+
+    def get_mapping_memories(self, bank):
+        lo, hi = self._rf.memory_bounds
+        count = (hi - lo + 1) / self._num_banks
+        offset = lo + ((bank.get_index() - 1) * count)
+        return [self._radio.get_memory(offset + i) for i in range(count)]
+
+    def get_memory_mappings(self, memory):
+        lo, hi = self._rf.memory_bounds
+        mems = hi - lo + 1
+        count = mems // self._num_banks
+        return [self._banks[(memory.number - lo) // count]]
+
+    def remove_memory_from_mapping(self, memory, mapping):
+        raise errors.RadioFixedBanks()
+
+    def add_memory_to_mapping(self, memory, mapping):
+        raise errors.RadioFixedBanks()
+
+
 class MappingModelIndexInterface:
     """Interface for mappings with index capabilities"""
 
@@ -864,6 +909,7 @@ class RadioFeatures:
         "has_comment":          BOOLEAN,
         "has_settings":         BOOLEAN,
         "has_variable_power":   BOOLEAN,
+        "has_dynamic_subdevices": BOOLEAN,
 
         # Attributes
         "valid_modes":          LIST,
@@ -963,6 +1009,8 @@ class RadioFeatures:
         self.init("has_variable_power", False,
                   "Indicates the radio supports any power level between the "
                   "min and max in valid_power_levels")
+        self.init("has_dynamic_subdevices", False,
+                  "Indicates the radio has a non-static list of subdevices")
 
         self.init("valid_modes", list(MODES),
                   "Supported emission (or receive) modes")
@@ -1018,6 +1066,16 @@ class RadioFeatures:
 
     def __getitem__(self, name):
         return self.__dict__[name]
+
+    @property
+    def concise_bands(self):
+        pp_range_strings = [
+            format_freq(lo).rstrip('0').rstrip('.') +
+            '-' +
+            format_freq(hi).rstrip('0').rstrip('.') +
+            'MHz'
+            for lo, hi in self.valid_bands]
+        return ', '.join(pp_range_strings)
 
     def validate_memory(self, mem):
         """Return a list of warnings and errors that will be encountered
@@ -1090,7 +1148,9 @@ class RadioFeatures:
             if not valid:
                 msg = ValidationError(
                     ("Frequency {freq} is out "
-                     "of supported range").format(freq=format_freq(mem.freq)))
+                     "of supported ranges {ranges}").format(
+                         freq=format_freq(mem.freq),
+                         ranges=self.concise_bands))
                 msgs.append(msg)
 
         if self.valid_bands and \
@@ -1139,6 +1199,13 @@ class RadioFeatures:
                                                   "`%s'" % char +
                                                   " not supported"))
                     break
+
+        if is_airband(mem.freq):
+            try:
+                fix_rounded_step(mem.freq)
+            except errors.InvalidDataError as e:
+                msgs.append(ValidationError(
+                    '%s: %s' % (format_freq(mem.freq), e)))
 
         return msgs
 
@@ -1427,6 +1494,10 @@ class DetectableInterface:
             setattr(cls, detected_attr, [])
         getattr(cls, detected_attr).append(detected_cls)
 
+    @classmethod
+    def is_minor_variant(cls):
+        return getattr(cls, '_MINOR_VARIANT', False)
+
 
 class CloneModeRadio(FileBackedRadio, ExternalMemoryProperties,
                      DetectableInterface):
@@ -1703,7 +1774,7 @@ def is_2_5(freq):
 
 def is_8_33(freq):
     """Returns True if @freq is reachable by a 8.33 kHz step"""
-    return (freq % 25000) in [0, 8330, 16660]
+    return (freq % 25000) in [8330, 8333, 16660, 16666]
 
 
 def is_1_0(freq):
@@ -1725,76 +1796,118 @@ def make_is(stephz):
 def required_step(freq, allowed=None):
     """Returns the simplest tuning step that is required to reach @freq"""
     if allowed is None:
-        allowed = [5.0, 10.0, 12.5, 6.25, 2.5, 8.33]
+        allowed = [5.0, 10.0, 12.5, 6.25, 2.5, 1.0, 0.5, 8.33, 0.25]
 
-    # These should be in order of most common to least common
-    steps = {
-        5.0: make_is(5000),
-        10.0: make_is(10000),
-        12.5: make_is(12500),
-        6.25: make_is(6250),
-        2.5: make_is(2500),
-        1.0: make_is(1000),
-        0.5: make_is(500),
-        0.25: make_is(250),
-        8.33: is_8_33,
-    }
-
-    # Try the above "standard" steps first in order
-    for step, validate in steps.items():
-        if step in allowed and validate(freq):
-            return step
-
-    # Try any additional steps in the allowed list
+    special = {8.33: is_8_33}
     for step in allowed:
-        if step in steps:
-            # Already tried
-            continue
-        if make_is(int(step * 1000))(freq):
-            LOG.debug('Chose non-standard step %s for %s' % (
-                step, format_freq(freq)))
+        if step in special:
+            validate = special[step]
+        else:
+            validate = make_is(int(step * 1000))
+        if validate(freq):
+            LOG.debug('Chose step %s for %s' % (step, format_freq(freq)))
             return step
 
     raise errors.InvalidDataError("Unable to find a supported " +
                                   "tuning step for %s" % format_freq(freq))
 
 
+def is_airband(freq):
+    """Returns True if @freq is in the airband range"""
+    return in_range(freq, [(to_MHz(108), to_MHz(137))])
+
+
 def fix_rounded_step(freq):
     """Some radios imply the last bit of 12.5 kHz and 6.25 kHz step
     frequencies. Take the base @freq and return the corrected one"""
-    try:
-        required_step(freq)
-        return freq
-    except errors.InvalidDataError:
-        pass
+    allowed = [12.5, 6.25]
+
+    if is_airband(freq):
+        # Airband can be 25kHz or 8.33kHz (25k / 3) steps
+        # https://en.wikipedia.org/wiki/Airband
+        if freq % 25000:
+            # This must be 8.33kHz. The goal here is to find the closest
+            # 8.33k-aligned channel and return that.
+            # In the 8.33kHz channel scheme, there are "channel names" that
+            # look like 5kHz-aligned frequencies within the 25kHz regular
+            # channels, which don't match the actual frequency being used
+            # (which is 8.33kHz-aligned). We need to be able to detect those
+            # and return the correct actual frequency, as well as allow
+            # matching the actual frequencies themselves.
+
+            # The "base frequency" is the 25kHz-aligned channel frequency that
+            # has been divided into three 8.33kHz channels.
+            base = freq // 25000 * 25000
+            orig = freq
+
+            # This is a channel name if it is 5kHz-aligned and equal-or-above
+            # the base frequency. Adjust down for the lower channel and up for
+            # the upper (no adjustment for the middle one) so that the channel
+            # matching below will find the right closest option.
+            ch_index = (freq - base) / 5000
+            if ch_index == 1.0:
+                # Lower of the three, bump down
+                freq -= (25000 // 3)
+            elif ch_index == 3.0:
+                # Upper of the three, bump up
+                freq += (25000 // 3)
+            elif ch_index >= 4.0 and ch_index == int(ch_index):
+                # This is 5kHz-aligned but not one of the three sub-channels,
+                # thus this is one of the gaps in the channel numbers. Refuse
+                # it so that it's clear to the user.
+                raise errors.InvalidDataError(
+                    _('Aircraft frequencies must be aligned to 25kHz, 8.33kHz'
+                      ', be or a valid channel'))
+
+            # These are the three possible 8.33kHz-aligned channels within
+            # this 25kHz block.
+            channels = [base + (25000 // 3) * i for i in range(0, 3)]
+
+            # Find the closest one to the original frequency
+            best = min(channels, key=lambda x: abs(x - freq))
+            LOG.debug('833: Orig %s Channels %s best %s adjusted %s diffs %s '
+                      'chindex %s' % (
+                          orig, channels, best, freq,
+                          [x - freq for x in channels], ch_index))
+            return best
+        else:
+            return freq
 
     try:
-        required_step(freq + 500)
+        required_step(freq + 500, allowed=allowed)
         return freq + 500
     except errors.InvalidDataError:
         pass
 
     try:
-        required_step(freq + 250)
+        required_step(freq + 250, allowed=allowed)
         return freq + 250
     except errors.InvalidDataError:
         pass
 
     try:
-        required_step(freq + 750)
+        required_step(freq + 750, allowed=allowed)
         return float(freq + 750)
     except errors.InvalidDataError:
         pass
 
     try:
-        required_step(freq + 330)
+        required_step(freq + 330, allowed=allowed)
         return float(freq + 330)
     except errors.InvalidDataError:
         pass
 
     try:
-        required_step(freq + 660)
+        required_step(freq + 660, allowed=allowed)
         return float(freq + 660)
+    except errors.InvalidDataError:
+        pass
+
+    # These radios can all resolve 5kHz, so make sure what we are left with
+    # is 5kHz-aligned, else we refuse below.
+    try:
+        required_step(freq, allowed=[5.0])
+        return freq
     except errors.InvalidDataError:
         pass
 
@@ -1826,40 +1939,41 @@ def name16(name, just_upper=False):
 
 def to_GHz(val):
     """Convert @val in GHz to Hz"""
-    return val * 1000000000
+    return int(val * 1000000000)
 
 
 def to_MHz(val):
     """Convert @val in MHz to Hz"""
-    return val * 1000000
+    return int(val * 1000000)
 
 
 def to_kHz(val):
     """Convert @val in kHz to Hz"""
-    return val * 1000
+    return int(val * 1000)
 
 
 def from_GHz(val):
     """Convert @val in Hz to GHz"""
-    return val // 100000000
+    return val // 1000000000
 
 
 def from_MHz(val):
     """Convert @val in Hz to MHz"""
-    return val // 100000
+    return val // 1000000
 
 
 def from_kHz(val):
     """Convert @val in Hz to kHz"""
-    return val // 100
+    return val // 1000
 
 
 def split_to_offset(mem, rxfreq, txfreq):
     """Set the freq, offset, and duplex fields of a memory based on
     a separate rx/tx frequency.
     """
+    mem.freq = rxfreq
+
     if abs(txfreq - rxfreq) > to_MHz(70):
-        mem.freq = rxfreq
         mem.offset = txfreq
         mem.duplex = 'split'
     else:
@@ -2025,7 +2139,23 @@ def urlretrieve(url, fn):
         f.write(resp.read())
 
 
+def mem_from_tsv(tsv_text):
+    fields = tsv_text.split('\t')
+    if len(fields) < 13:
+        raise ValueError('Not enough fields to be a memory')
+    mem = Memory()
+    mem.really_from_csv(fields)
+    print('Parsed %s from tsv' % mem)
+    return mem
+
+
 def mem_from_text(text):
+    if text.count('\t') > 10:
+        # Seems like plausible TSV, return if it parses
+        try:
+            return mem_from_tsv(text)
+        except Exception:
+            pass
     m = Memory()
     freqs = re.findall(r'\b(\d{1,3}\.\d{2,6})\b', text)
     if not freqs:
@@ -2086,3 +2216,19 @@ def in_range(freq, ranges):
         if lo <= freq <= hi:
             return True
     return False
+
+
+def is_split(bands, freq1, freq2):
+    """Check if two freqs are in the same band from a list of bands
+    Returns False if the two freqs are in the same band (not split)
+    or True if they are in separate bands (split)"""
+
+    # determine if the two freqs are in the same band
+    for low, high in bands:
+        if freq1 >= low and freq1 <= high and \
+                freq2 >= low and freq2 <= high:
+            # if the two freqs are on the same Band this is not a split
+            return False
+
+    # if you get here is because the freq pairs are split
+    return True

@@ -16,6 +16,7 @@
 
 import glob
 import os
+import inspect
 import logging
 import sys
 
@@ -36,6 +37,18 @@ def radio_class_id(cls):
     return ident
 
 
+def registered_class(cls):
+    """Find the first parent of @cls that is registered"""
+    bases = inspect.getmro(cls)
+    for base in bases:
+        try:
+            return get_driver(base)
+        except Exception:
+            pass
+    else:
+        raise KeyError('No parent radio class of %s is registered' % cls)
+
+
 ALLOW_DUPS = False
 
 
@@ -51,7 +64,6 @@ def enable_reregistrations():
 
 def register(cls):
     """Register radio @cls with the directory"""
-    global DRV_TO_RADIO
     ident = radio_class_id(cls)
     if ident in list(DRV_TO_RADIO.keys()):
         if ALLOW_DUPS:
@@ -65,6 +77,8 @@ def register(cls):
 
     if not hasattr(cls, '_DETECTED_BY'):
         cls._DETECTED_BY = None
+    if not hasattr(cls, '_MINOR_VARIANT'):
+        cls._MINOR_VARIANT = False
 
     return cls
 
@@ -86,6 +100,19 @@ def detected_by(manager_class):
         return cls
 
     return wrapper
+
+
+def minorvariant(cls):
+    """Mark a class as too minor to distinguish from its parent.
+
+    Use this on registered classes that are very minor and used for
+    organization, but need not be exposed to the user as a separate offering.
+    Minor version differences of the same model, for example.
+    """
+    assert issubclass(cls, chirp_common.CloneModeRadio)
+
+    cls._MINOR_VARIANT = True
+    return cls
 
 
 DRV_TO_RADIO = {}

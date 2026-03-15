@@ -1,4 +1,5 @@
 # Quansheng UV-K5 driver (c) 2023 Jacek Lipkowski <sq5bpf@lipkowski.org>
+# Quansheng UV-K1 driver (c) 2025 Thibaut Berg <thibaut.berg@hotmail.com>
 #
 # based on template.py Copyright 2012 Dan Smith <dsmith@danplanet.com>
 #
@@ -28,7 +29,7 @@
 import struct
 import logging
 
-from chirp import chirp_common, directory, bitwise, memmap, errors, util
+from chirp import chirp_common, directory, bitwise, memmap, errors, util, crc
 from chirp.settings import RadioSetting, RadioSettingGroup, \
     RadioSettingValueBoolean, RadioSettingValueList, \
     RadioSettingValueInteger, RadioSettingValueString, \
@@ -127,7 +128,7 @@ u8 key2_longpress_action;
 u8 scan_resume_mode;
 u8 auto_keypad_lock;
 u8 power_on_dispmode;
-u8 password[4];
+u8 password[8];
 
 #seekto 0xea0;
 u8 keypad_tone;
@@ -257,9 +258,6 @@ CHANNELDISP_LIST = ["Frequency", "Channel No", "Channel Name"]
 # battery save
 BATSAVE_LIST = ["OFF", "1:1", "1:2", "1:3", "1:4"]
 
-# Backlight auto mode
-BACKLIGHT_LIST = ["Off", "1s", "2s", "3s", "4s", "5s"]
-
 # Crossband receiving/transmitting
 CROSSBAND_LIST = ["Off", "Band A", "Band B"]
 DUALWATCH_LIST = CROSSBAND_LIST
@@ -282,7 +280,6 @@ SCANRESUME_LIST = ["TO: Resume after 5 seconds",
 
 WELCOME_LIST = ["Full Screen", "Welcome Info", "Voltage"]
 KEYPADTONE_LIST = ["Off", "Chinese", "English"]
-LANGUAGE_LIST = ["Chinese", "English"]
 ALARMMODE_LIST = ["SITE", "TONE"]
 REMENDOFTALK_LIST = ["Off", "ROGER", "MDC"]
 RTE_LIST = ["Off", "100ms", "200ms", "300ms", "400ms",
@@ -299,9 +296,9 @@ FMMAX = 108.0
 # bands supported by the UV-K5
 BANDS = {
         0: [50.0, 76.0],
-        1: [108.0, 135.9999],
-        2: [136.0, 199.9990],
-        3: [200.0, 299.9999],
+        1: [108.0, 136.9999],
+        2: [137.0, 173.9999],
+        3: [174.0, 349.9999],
         4: [350.0, 399.9999],
         5: [400.0, 469.9999],
         6: [470.0, 600.0]
@@ -310,9 +307,9 @@ BANDS = {
 # for radios with modified firmware:
 BANDS_NOLIMITS = {
         0: [18.0, 76.0],
-        1: [108.0, 135.9999],
-        2: [136.0, 199.9990],
-        3: [200.0, 299.9999],
+        1: [108.0, 136.9999],
+        2: [137.0, 173.9999],
+        3: [174.0, 349.9999],
         4: [350.0, 399.9999],
         5: [400.0, 469.9999],
         6: [470.0, 1300.0]
@@ -368,36 +365,17 @@ def xorarr(data: bytes):
     return ret
 
 
-def calculate_crc16_xmodem(data: bytes):
-    """
-    if this crc was used for communication to AND from the radio, then it
-    would be a measure to increase reliability.
-    but it's only used towards the radio, so it's for further obfuscation
-    """
-    poly = 0x1021
-    crc = 0x0
-    for byte in data:
-        crc = crc ^ (byte << 8)
-        for _ in range(8):
-            crc = crc << 1
-            if crc & 0x10000:
-                crc = (crc ^ poly) & 0xFFFF
-    return crc & 0xFFFF
-
-
 def _send_command(serport, data: bytes):
     """Send a command to UV-K5 radio"""
-    LOG.debug("Sending command (unobfuscated) len=0x%4.4x:\n%s",
-              len(data), util.hexprint(data))
+    serport.log("Sending command (unobfuscated) len=0x%4.4x:\n%s" % (
+              len(data), util.hexprint(data)))
 
-    crc = calculate_crc16_xmodem(data)
-    data2 = data + struct.pack("<H", crc)
+    crc_data = crc.crc16_xmodem(data)
+    data2 = data + struct.pack("<H", crc_data)
 
     command = struct.pack(">HBB", 0xabcd, len(data), 0) + \
         xorarr(data2) + \
         struct.pack(">H", 0xdcba)
-    if DEBUG_SHOW_OBFUSCATED_COMMANDS:
-        LOG.debug("Sending command (obfuscated):\n%s", util.hexprint(command))
     try:
         result = serport.write(command)
     except Exception as e:
@@ -438,14 +416,7 @@ def _receive_reply(serport):
                     util.hexprint(footer), len(footer))
         raise errors.RadioError("Bad response footer")
 
-    if DEBUG_SHOW_OBFUSCATED_COMMANDS:
-        LOG.debug("Received reply (obfuscated) len=0x%4.4x:\n%s",
-                  len(cmd), util.hexprint(cmd))
-
     cmd2 = xorarr(cmd)
-
-    LOG.debug("Received reply (unobfuscated) len=0x%4.4x:\n%s",
-              len(cmd2), util.hexprint(cmd2))
 
     return cmd2
 
@@ -484,37 +455,26 @@ def _sayhello(serport):
 
 
 def _readmem(serport, offset, length):
-    LOG.debug("Sending readmem offset=0x%4.4x len=0x%4.4x", offset, length)
+    serport.log("Sending readmem offset=0x%4.4x len=0x%4.4x" % (
+        offset, length))
 
     readmem = b"\x1b\x05\x08\x00" + \
         struct.pack("<HBB", offset, length, 0) + \
         b"\x6a\x39\x57\x64"
     _send_command(serport, readmem)
     rep = _receive_reply(serport)
-    if DEBUG_SHOW_MEMORY_ACTIONS:
-        LOG.debug("readmem Received data len=0x%4.4x:\n%s",
-                  len(rep), util.hexprint(rep))
     return rep[8:]
 
 
 def _writemem(serport, data, offset):
-    LOG.debug("Sending writemem offset=0x%4.4x len=0x%4.4x",
-              offset, len(data))
-
-    if DEBUG_SHOW_MEMORY_ACTIONS:
-        LOG.debug("writemem sent data offset=0x%4.4x len=0x%4.4x:\n%s",
-                  offset, len(data), util.hexprint(data))
-
     dlen = len(data)
     writemem = b"\x1d\x05" + \
         struct.pack("<BBHBB", dlen+8, 0, offset, dlen, 1) + \
         b"\x6a\x39\x57\x64"+data
 
+    serport.log('Writemem at offset %04x len %04x' % (offset, dlen))
     _send_command(serport, writemem)
     rep = _receive_reply(serport)
-
-    LOG.debug("writemem Received data: %s len=%i",
-              util.hexprint(rep), len(rep))
 
     if (rep[0] == 0x1e and
        rep[4] == (offset & 0xff) and
@@ -637,7 +597,9 @@ class UVK5RadioBase(chirp_common.CloneModeRadio):
     _expanded_limits = False
     _upload_calibration = False
     _pttid_list = ["off", "BOT", "EOT", "BOTH"]
-    _steps = [1.0, 2.5, 5.0, 6.25, 10.0, 12.5, 25.0, 8.33]
+    _steps = [2.5, 5.0, 6.25, 10.0, 12.5, 25.0]
+    _langs = ["Chinese", "English"]
+    _backlight = ["Off"] + ['%is' % (i + 1) for i in range(5)]
 
     @classmethod
     def k5_approve_firmware(cls, firmware):
@@ -739,7 +701,8 @@ class UVK5RadioBase(chirp_common.CloneModeRadio):
     # Return a raw representation of the memory object, which
     # is very helpful for development
     def get_raw_memory(self, number):
-        return repr(self._memobj.channel[number-1])
+        return '\n'.join([repr(self._memobj.channel[number-1]),
+                          repr(self._memobj.channel_attributes[number-1])])
 
     def _find_band(self, hz):
         return _find_band(self._expanded_limits, hz)
@@ -1047,7 +1010,7 @@ class UVK5RadioBase(chirp_common.CloneModeRadio):
             # Backlight auto mode
             if element.get_name() == "backlight_auto_mode":
                 _mem.backlight_auto_mode = \
-                        BACKLIGHT_LIST.index(str(element.value))
+                        self._backlight.index(str(element.value))
 
             # Tail tone elimination
             if element.get_name() == "tail_note_elimination":
@@ -1084,7 +1047,7 @@ class UVK5RadioBase(chirp_common.CloneModeRadio):
 
             # Language
             if element.get_name() == "language":
-                _mem.language = LANGUAGE_LIST.index(str(element.value))
+                _mem.language = self._langs.index(str(element.value))
 
             # Alarm mode
             if element.get_name() == "alarm_mode":
@@ -1681,12 +1644,12 @@ class UVK5RadioBase(chirp_common.CloneModeRadio):
 
         # Backlight auto mode
         tmpback = _mem.backlight_auto_mode
-        if tmpback >= len(BACKLIGHT_LIST):
+        if tmpback >= len(self._backlight):
             tmpback = 0
         rs = RadioSetting("backlight_auto_mode",
                           "Backlight auto mode",
                           RadioSettingValueList(
-                              BACKLIGHT_LIST,
+                              self._backlight,
                               current_index=tmpback))
         basic.append(rs)
 
@@ -1758,11 +1721,12 @@ class UVK5RadioBase(chirp_common.CloneModeRadio):
 
         # Language
         tmplanguage = _mem.language
-        if tmplanguage >= len(LANGUAGE_LIST):
+        if tmplanguage >= len(self._langs):
             tmplanguage = 0
         rs = RadioSetting("language", "Language", RadioSettingValueList(
-            LANGUAGE_LIST, current_index=tmplanguage))
-        basic.append(rs)
+            self._langs, current_index=tmplanguage))
+        if self._langs:
+            basic.append(rs)
 
         # Alarm mode
         tmpalarmmode = _mem.alarm_mode
@@ -2042,8 +2006,17 @@ class UVK5Radio(UVK5RadioBase):
     @classmethod
     def k5_approve_firmware(cls, firmware):
         approved_prefixes = (
+            # These are the original OEM firmware versions
             'k5_2.01.', 'app_2.01.', '2.01.', '3.00.',
-            '1o11', '4.00.', 'k5_4.00.', '5.00.')
+            '4.00.', 'k5_4.00.', '5.00.', '7.00.',
+            # This "oneofeeleven" prefix really covers a wide range of
+            # firmwares that are user-built, but people report them working
+            # fine with the base driver.
+            '1o11',
+            # These are reportendly OEM and newer than the original firmwares,
+            # as of late 2025
+            '1.02.',
+            )
         return any(firmware.startswith(x) for x in approved_prefixes)
 
     @classmethod
@@ -2071,6 +2044,27 @@ class MaxTalkerTK6(UVK5Radio):
 
 @directory.register
 @directory.detected_by(UVK5Radio)
+class OSFWUVK5Radio(UVK5RadioBase):
+    VARIANT = 'OSFW'
+    _langs = []
+    _backlight = ['Off'] + ['%is' % (i + 1) for i in range(60)]
+
+    @classmethod
+    def k5_approve_firmware(cls, firmware):
+        return firmware in ("OSFW-bd90ca3",)
+
+    def _find_band(self, hz):
+        return _find_band(True, hz)
+
+    def set_settings(self, settings):
+        # Something about this firmware needs this cleared to avoid getting
+        # locked.
+        self._memobj.password.fill_raw(b'\xFF')
+        return super().set_settings(settings)
+
+
+@directory.register
+@directory.detected_by(UVK5Radio)
 class UVK5RestrictedRadio(UVK5RadioBase):
     VARIANT = 'unsupported'
 
@@ -2088,11 +2082,6 @@ class UVK5RestrictedRadio(UVK5RadioBase):
         raise errors.RadioError(
             _('Upload is disabled due to unsupported firmware version'))
 
-    def get_memory(self, n):
-        mem = super().get_memory(n)
-        mem.immutable = dir(mem)
-        return mem
-
     def set_memory(self, m):
         raise errors.InvalidValueError(
             _('Memories are read-only due to unsupported firmware version'))
@@ -2100,3 +2089,36 @@ class UVK5RestrictedRadio(UVK5RadioBase):
     def set_settings(self, settings):
         raise errors.InvalidValueError(
             _('Settings are read-only due to unsupported firmware version'))
+
+    def validate_memory(self, mem):
+        return [chirp_common.ValidationError(
+            _('This image is read-only due to being from a radio with '
+              'unsupported firmware'))]
+
+
+@directory.register
+class UVK1Radio(UVK5RadioBase):
+    VENDOR = "Quansheng"
+    MODEL = "UV-K1"
+
+    @classmethod
+    def k5_approve_firmware(cls, firmware):
+        # The first released OEM firmware version is 7.03.01
+        # For the moment, the driver version is limited 7.03.XX
+        # No information is available about the future firmware releases,
+        # so for safety, the versions are limited.
+        # Version management is supposed to be standardized, and only minor
+        # changes may occur in the firmware which should not break this driver.
+
+        return firmware.startswith("7.03.")
+
+    def get_features(self):
+        # The first driver version includes only memory programming,
+        # settings provided by uv-k5 base implementation are disabled
+        features = super().get_features()
+        features.has_settings = False
+
+        return features
+
+    def get_settings(self):
+        return []

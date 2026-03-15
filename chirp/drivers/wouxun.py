@@ -60,7 +60,7 @@ class KGUVD1PRadio(chirp_common.CloneModeRadio,
     MODEL = "KG-UVD1P"
     _model = b"KG669V"
 
-    _querymodel = (b"HiWOUXUN\x02", b"PROGUV6X\x02")
+    _querymodels = (b"HiWOUXUN\x02", b"PROGUV6X\x02")
 
     CHARSET = list("0123456789") + \
         [chr(x + ord("A")) for x in range(0, 26)] + list("?+-")
@@ -227,22 +227,11 @@ class KGUVD1PRadio(chirp_common.CloneModeRadio,
             "6. Click OK to upload image to device.\n")
         return rp
 
-    @classmethod
-    def _get_querymodel(cls):
-        if isinstance(cls._querymodel, str):
-            while True:
-                yield cls._querymodel
-        else:
-            i = 0
-            while True:
-                yield cls._querymodel[i % len(cls._querymodel)]
-                i += 1
-
     def _identify(self):
         """Do the original Wouxun identification dance"""
-        query = self._get_querymodel()
         for _i in range(0, 10):
-            self.pipe.write(next(query))
+            model = self._querymodels[_i % len(self._querymodels)]
+            self.pipe.write(model)
             resp = self.pipe.read(9)
             if len(resp) != 9:
                 LOG.debug("Got:\n%s" % util.hexprint(resp))
@@ -308,6 +297,9 @@ class KGUVD1PRadio(chirp_common.CloneModeRadio,
             self._mmap = memmap.MemoryMap(
                     ("\xFF" * 16) + self._mmap.get_packed()[8:8184])
         self._memobj = bitwise.parse(self._MEM_FORMAT, self._mmap)
+        # This sets our frequency ranges, so run it once after we process the
+        # mmap to make sure they're set for later
+        self.get_settings()
 
     def get_features(self):
         rf = chirp_common.RadioFeatures()
@@ -337,6 +329,64 @@ class KGUVD1PRadio(chirp_common.CloneModeRadio,
         rf.memory_bounds = (1, 128)
         rf.can_odd_split = True
         return rf
+
+    @property
+    def transmit_time_out_setting(self):
+        options = ["%s" % x for x in range(15, 615, 15)]
+        rs = RadioSetting(
+            "transmit_time_out",
+            "TX Time-out Timer",
+            RadioSettingValueList(
+                options,
+                current_index=self._memobj.settings.transmit_time_out))
+        return rs
+
+    @property
+    def transmit_time_out_alert_setting(self):
+        options = ["OFF"] + ["%s" % x for x in range(1, 11)]
+        rs = RadioSetting(
+            "tx_time_out_alert",
+            "TX Time-out Alert",
+            RadioSettingValueList(
+                options,
+                current_index=self._memobj.settings.tx_time_out_alert))
+        return rs
+
+    @property
+    def roger_beep_setting(self):
+        options = ["Off", "Begin", "End", "Both"]
+        rs = RadioSetting(
+            "roger_beep",
+            "Roger beep select",
+            RadioSettingValueList(
+                options,
+                current_index=self._memobj.settings.roger_beep))
+        return rs
+
+    @property
+    def power_save_setting(self):
+        rs = RadioSetting("power_save", "Power save",
+                          RadioSettingValueBoolean(
+                              self._memobj.settings.power_save))
+        return rs
+
+    @property
+    def vox_setting(self):
+        options = ["OFF"] + ["%s" % x for x in range(1, 11)]
+        rs = RadioSetting(
+            "vox",
+            "Vox",
+            RadioSettingValueList(
+                options,
+                current_index=self._memobj.settings.vox))
+        return rs
+
+    @property
+    def beep_setting(self):
+        rs = RadioSetting("beep", "Beep",
+                          RadioSettingValueBoolean(
+                              self._memobj.settings.beep))
+        return rs
 
     def get_settings(self):
         freq_ranges = RadioSettingGroup("freq_ranges", "Freq Ranges")
@@ -466,10 +516,7 @@ class KGUVD1PRadio(chirp_common.CloneModeRadio,
                           RadioSettingValueInteger(
                               0, 199, self._memobj.settings.priority_chan))
         cfg_s.append(rs)
-        rs = RadioSetting("power_save", "Power save",
-                          RadioSettingValueBoolean(
-                              self._memobj.settings.power_save))
-        cfg_s.append(rs)
+        cfg_s.append(self.power_save_setting)
         options = ["Off", "Scan", "Lamp", "SOS", "Radio"]
         rs = RadioSetting(
             "pf1_function", "PF1 Function select",
@@ -477,34 +524,15 @@ class KGUVD1PRadio(chirp_common.CloneModeRadio,
                 options,
                 current_index=self._memobj.settings.pf1_function))
         cfg_s.append(rs)
-        options = ["Off", "Begin", "End", "Both"]
-        rs = RadioSetting("roger_beep", "Roger beep select",
-                          RadioSettingValueList(
-                              options,
-                              current_index=self._memobj.settings.roger_beep))
-        cfg_s.append(rs)
-        options = ["%s" % x for x in range(15, 615, 15)]
-        transmit_time_out = options[self._memobj.settings.transmit_time_out]
-        rs = RadioSetting("transmit_time_out", "TX Time-out Timer",
-                          RadioSettingValueList(
-                              options, transmit_time_out))
-        cfg_s.append(rs)
-        rs = RadioSetting("tx_time_out_alert", "TX Time-out Alert",
-                          RadioSettingValueInteger(
-                              0, 10, self._memobj.settings.tx_time_out_alert))
-        cfg_s.append(rs)
-        rs = RadioSetting("vox", "Vox",
-                          RadioSettingValueInteger(
-                              0, 10, self._memobj.settings.vox))
-        cfg_s.append(rs)
+        cfg_s.append(self.roger_beep_setting)
+        cfg_s.append(self.transmit_time_out_setting)
+        cfg_s.append(self.transmit_time_out_alert_setting)
+        cfg_s.append(self.vox_setting)
         options = ["Off", "Chinese", "English"]
         rs = RadioSetting("voice", "Voice", RadioSettingValueList(
             options, current_index=self._memobj.settings.voice))
         cfg_s.append(rs)
-        rs = RadioSetting("beep", "Beep",
-                          RadioSettingValueBoolean(
-                              self._memobj.settings.beep))
-        cfg_s.append(rs)
+        cfg_s.append(self.beep_setting)
         rs = RadioSetting("ani_id_enable", "ANI id enable",
                           RadioSettingValueBoolean(
                               self._memobj.settings.ani_id_enable))
@@ -744,17 +772,7 @@ class KGUVD1PRadio(chirp_common.CloneModeRadio,
     def _is_txinh(self, _mem):
         return _mem.tx_freq.get_raw() == b"\xFF\xFF\xFF\xFF"
 
-    def get_memory(self, number):
-        _mem = self._memobj.memory[number - 1]
-        _nam = self._memobj.names[number - 1]
-
-        mem = chirp_common.Memory()
-        mem.number = number
-
-        if _mem.get_raw() == (b"\xff" * 16):
-            mem.empty = True
-            return mem
-
+    def _set_duplex_offset_freq(self, _mem, mem):
         mem.freq = int(_mem.rx_freq) * 10
         if _mem.splitdup:
             mem.duplex = "split"
@@ -771,6 +789,19 @@ class KGUVD1PRadio(chirp_common.CloneModeRadio,
             mem.offset = int(_mem.tx_freq) * 10
         else:
             mem.offset = abs(int(_mem.tx_freq) - int(_mem.rx_freq)) * 10
+
+    def get_memory(self, number):
+        _mem = self._memobj.memory[number - 1]
+        _nam = self._memobj.names[number - 1]
+
+        mem = chirp_common.Memory()
+        mem.number = number
+
+        if _mem.get_raw() == (b"\xff" * 16):
+            mem.empty = True
+            return mem
+
+        self._set_duplex_offset_freq(_mem, mem)
 
         if not _mem.skip:
             mem.skip = "S"
@@ -839,6 +870,9 @@ class KGUVD1PRadio(chirp_common.CloneModeRadio,
         LOG.debug("Set TX %s (%i) RX %s (%i)" %
                   (tx_mode, _mem.tx_tone, rx_mode, _mem.rx_tone))
 
+    def _set_split_duplex(self, _mem, mem):
+        _mem.splitdup = mem.duplex == "split"
+
     def set_memory(self, mem):
         _mem = self._memobj.memory[mem.number - 1]
         _nam = self._memobj.names[mem.number - 1]
@@ -861,7 +895,8 @@ class KGUVD1PRadio(chirp_common.CloneModeRadio,
             _mem.tx_freq = int(mem.freq / 10) - int(mem.offset / 10)
         else:
             _mem.tx_freq = int(mem.freq / 10)
-        _mem.splitdup = mem.duplex == "split"
+
+        self._set_split_duplex(_mem, mem)
         _mem.skip = mem.skip != "S"
         _mem.iswide = mem.mode != "NFM"
 
@@ -906,7 +941,7 @@ class KGUV6DRadio(KGUVD1PRadio):
     """Wouxun KG-UV6 (D and X variants)"""
     MODEL = "KG-UV6"
 
-    _querymodel = (b"HiWXUVD1\x02", b"HiKGUVD1\x02")
+    _querymodels = (b"HiWXUVD1\x02", b"HiKGUVD1\x02")
 
     _MEM_FORMAT = """
         #seekto 0x0010;
@@ -1433,7 +1468,7 @@ class KG816Radio(KGUVD1PRadio, chirp_common.ExperimentalRadio):
     """Wouxun KG-816"""
     MODEL = "KG-816"
 
-    _querymodel = b"HiWOUXUN\x02"
+    _querymodels = (b"HiWOUXUN\x02", )
 
     _MEM_FORMAT = """
         #seekto 0x0010;
@@ -1559,6 +1594,121 @@ class KG816Radio(KGUVD1PRadio, chirp_common.ExperimentalRadio):
 class KG818Radio(KG816Radio):
     """Wouxun KG-818"""
     MODEL = "KG-818"
+
+    @classmethod
+    def match_model(cls, filedata, filename):
+        return False
+
+
+@directory.register
+class KG805GRadio(KGUVD1PRadio):
+    """Wouxun KG-805G"""
+    MODEL = "KG-805G"
+
+    _querymodels = (b"HiWOUXUN\x02", )
+    valid_freq = [(400000000, 470987500)]
+
+    _MEM_FORMAT = """
+        #seekto 0x0010;
+        struct {
+          lbcd rx_freq[4];
+          lbcd tx_freq[4];
+          ul16 rx_tone;
+          ul16 tx_tone;
+          u8 _3_unknown_1:4,
+             bcl:1,
+             _3_unknown_2:3;
+          u8 _2_unknown_1:1,
+             skip:1,
+             power_high:1,
+             iswide:1,
+             _2_unknown_2:4;
+          u8 unknown;
+          u8 _0_unknown_1:3,
+             iswidex:1,
+             _0_unknown_2:4;
+        } memory[128];
+
+        #seekto 0x0E20;
+        struct {
+          u8 unknown_setting_01[2];
+          u8 unknown_setting_02:4,
+             squelch:4;
+          u8 unknown_setting_03:7,
+             power_save:1;
+          u8 unknown_setting_04;
+          u8 unknown_setting_05:6,
+             roger_beep:2;
+          u8 unknown_setting_06:2,
+             transmit_time_out:6;
+          u8 unknown_setting_07:4,
+             vox:4;
+          u8 unknown_setting_08[5];
+          u8 unknown_setting_09:7,
+             beep:1;
+          u8 unknown_setting_10[8];
+          u8 unknown_setting_11:4,
+             tx_time_out_alert:4;
+          u8 unknown_setting_12[9];
+          u8 unknown_setting_13;
+          u8 unknown_setting_14:7,
+             auto_lock:1;
+        } settings;
+
+
+        #seekto 0x1010;
+        struct {
+            u8 name[6];
+            u8 pad[10];
+        } names[128];
+    """
+
+    def process_mmap(self):
+        self._memobj = bitwise.parse(self._MEM_FORMAT, self._mmap)
+        # This sets our frequency ranges, so run it once after we process the
+        # mmap to make sure they're set for later
+        self.get_settings()
+
+    def get_settings(self):
+        cfg_s = RadioSettingGroup("cfg_settings", "Configuration Settings")
+        group = RadioSettings(cfg_s)
+
+        cfg_s.append(self.power_save_setting)
+
+        options = ["%s" % x for x in range(0, 10)]
+        rs = RadioSetting(
+            "squelch",
+            "Squelch",
+            RadioSettingValueList(
+                options,
+                current_index=self._memobj.settings.squelch))
+        cfg_s.append(rs)
+
+        cfg_s.append(self.roger_beep_setting)
+        cfg_s.append(self.transmit_time_out_setting)
+        cfg_s.append(self.transmit_time_out_alert_setting)
+        cfg_s.append(self.vox_setting)
+        cfg_s.append(self.beep_setting)
+
+        rs = RadioSetting("auto_lock", "Auto lock",
+                          RadioSettingValueBoolean(
+                              self._memobj.settings.auto_lock))
+        cfg_s.append(rs)
+
+        return group
+
+    def _set_duplex_offset_freq(self, _mem, mem):
+        if self._is_txinh(_mem):
+            # TX freq not set
+            mem.duplex = "off"
+            mem.offset = 0
+            mem.freq = int(_mem.rx_freq) * 10
+        else:
+            chirp_common.split_to_offset(
+                mem, int(_mem.rx_freq) * 10, int(_mem.tx_freq) * 10)
+
+    def _set_split_duplex(self, _mem, mem):
+        pass
 
     @classmethod
     def match_model(cls, filedata, filename):

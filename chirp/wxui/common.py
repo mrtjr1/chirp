@@ -23,6 +23,7 @@ import platform
 import shutil
 import tempfile
 import threading
+import webbrowser
 
 import wx
 
@@ -41,6 +42,8 @@ CONF = config.get()
 CHIRP_DATA_MEMORY = wx.DataFormat('x-chirp/memory-channel')
 EditorChanged, EVT_EDITOR_CHANGED = wx.lib.newevent.NewCommandEvent()
 StatusMessage, EVT_STATUS_MESSAGE = wx.lib.newevent.NewCommandEvent()
+EditorRefresh, EVT_EDITOR_REFRESH = wx.lib.newevent.NewCommandEvent()
+CrossEditorAction, EVT_CROSS_EDITOR_ACTION = wx.lib.newevent.NewCommandEvent()
 INDEX_CHAR = settings.BANNED_NAME_CHARACTERS[0]
 
 # This is a lock that can be used to exclude edit-specific operations
@@ -134,7 +137,9 @@ class EditorMenuItem(wx.MenuItem):
     ITEMS = {}
 
     def __init__(self, cls, callback_name, *a, **k):
-        self._wx_id = wx.NewId()
+        self._wx_id = k.pop('id', None)
+        if not self._wx_id:
+            self._wx_id = wx.NewId()
         super().__init__(None, self._wx_id, *a, **k)
         self._cls = cls
         self._callback_name = callback_name
@@ -159,10 +164,15 @@ class EditorMenuItem(wx.MenuItem):
         self.SetAccel(accel)
 
 
-class EditorMenuItemToggle(EditorMenuItem):
+class EditorMenuItemToggleStateless(EditorMenuItem):
+    def __init__(self, cls, callback_name, *a, **k):
+        k['kind'] = wx.ITEM_CHECK
+        super().__init__(cls, callback_name, *a, **k)
+
+
+class EditorMenuItemToggle(EditorMenuItemToggleStateless):
     """An EditorMenuItem that manages boolean/check state in CONF"""
     def __init__(self, cls, callback_name, conf_tuple, *a, **k):
-        k['kind'] = wx.ITEM_CHECK
         super().__init__(cls, callback_name, *a, **k)
         self._conf_key, self._conf_section = conf_tuple
 
@@ -371,6 +381,14 @@ class ChirpSettingGrid(wx.Panel):
         self.pg.Bind(wx.propgrid.EVT_PG_CHANGED, self._pg_changed)
         self.pg.Bind(wx.EVT_MOTION, self._mouseover)
 
+        self.pg.DedicateKey(wx.WXK_TAB)
+        self.pg.DedicateKey(wx.WXK_RETURN)
+        self.pg.DedicateKey(wx.WXK_UP)
+        self.pg.DedicateKey(wx.WXK_DOWN)
+        self.pg.AddActionTrigger(wx.propgrid.PG_ACTION_EDIT, wx.WXK_RETURN)
+        self.pg.AddActionTrigger(wx.propgrid.PG_ACTION_NEXT_PROPERTY,
+                                 wx.WXK_RETURN)
+
         sizer = wx.BoxSizer(wx.VERTICAL)
         self.SetSizer(sizer)
         sizer.Add(self.pg, 1, wx.EXPAND)
@@ -385,12 +403,20 @@ class ChirpSettingGrid(wx.Panel):
         tip = None
         if prop:
             setting = self.get_setting_by_name(prop.GetName())
-            tip = setting.__doc__ or None
-            if tip and tip == setting.get_name():
-                # This is the default, which makes no sense, but it's been
-                # that way for ages, so just avoid exposing it here if it's
-                # set to the default.
-                tip = None
+            # FIXME: Indexed properties will have their INDEX_CHAR replaced
+            # here and thus won't match the actual setting name, so we'll
+            # get None here. Avoid a trace for now, but this needs fixing.
+            if setting and isinstance(setting.value,
+                                      settings.RadioSettingValueString):
+                tip = setting.__doc__ or ''
+                if setting.value.maxlength == setting.value._minlength:
+                    extra = '%i characters' % setting.value.maxlength
+                else:
+                    extra = '%i-%i characters' % (setting.value.minlength,
+                                                  setting.value.maxlength)
+                tip = (tip + ' (%s)' % extra).strip()
+            else:
+                tip = setting.__doc__ or None
 
         event.GetEventObject().SetToolTip(tip)
 
@@ -475,12 +501,12 @@ class ChirpSettingGrid(wx.Panel):
             else:
                 LOG.info('User made change to %s=%s despite warning',
                          event.GetPropertyName(), event.GetValue())
-        self._needs_reload = setting.volatile
-        if self.needs_reload:
+        if setting.volatile:
             wx.MessageBox(_(
                 'Changing this setting requires refreshing the settings from '
                 'the image, which will happen now.'),
                           _('Refresh required'), wx.OK)
+            self._needs_reload = True
 
         # If we were unspecified or otherwise marked, clear those markings
         self.pg.SetPropertyColoursToDefault(event.GetProperty().GetName())
@@ -490,15 +516,13 @@ class ChirpSettingGrid(wx.Panel):
         return self._group.get_name()
 
     @property
-    def needs_reload(self):
-        return self._needs_reload
-
-    @property
     def propgrid(self):
         return self.pg
 
     def _pg_changed(self, event):
-        wx.PostEvent(self, EditorChanged(self.GetId()))
+        wx.PostEvent(self, EditorChanged(self.GetId(),
+                                         reload=self._needs_reload))
+        self._needs_reload = False
 
     def _get_editor_int(self, setting, value):
         e = wx.propgrid.IntProperty(setting.get_shortname(),
@@ -608,54 +632,44 @@ class ChirpSettingGrid(wx.Panel):
             prop.SetModifiedStatus(False)
 
 
-def _error_proof(*expected_errors):
-    """Decorate a method and display an error if it raises.
-
-    If the method raises something in expected_errors, then
-    log an error, otherwise log exception.
-    """
-
-    def show_error(msg):
-        d = wx.MessageDialog(None, str(msg), _('An error has occurred'),
-                             style=wx.OK | wx.ICON_ERROR)
-        d.ShowModal()
-
-    def wrap(fn):
-        @functools.wraps(fn)
-        def inner(*args, **kwargs):
-            try:
-                return fn(*args, **kwargs)
-            except expected_errors as e:
-                LOG.error('%s: %s' % (fn, e))
-                show_error(e)
-            except Exception as e:
-                LOG.exception('%s raised unexpected exception' % fn)
-                show_error(e)
-
-        return inner
-    return wrap
-
-
 class error_proof(object):
-    def __init__(self, *expected_exceptions):
+    def __init__(self, *expected_exceptions, title=None):
         self._expected = expected_exceptions
         self.fn = None
+        self.title = title
 
     @staticmethod
-    def show_error(msg):
-        d = wx.MessageDialog(None, str(msg), _('An error has occurred'),
-                             style=wx.OK | wx.ICON_ERROR)
-        d.ShowModal()
+    def show_error(error, parent=None, title=None):
+        title = title or _('An error has occurred')
+
+        if isinstance(error, errors.SpecificRadioError):
+            link = error.get_link()
+            message = str(error)
+        else:
+            link = None
+            message = str(error)
+
+        if link:
+            buttons = wx.YES_NO | wx.NO_DEFAULT
+        else:
+            buttons = wx.OK
+        d = wx.MessageDialog(parent, message, title,
+                             wx.ICON_ERROR | buttons)
+        if link:
+            d.SetYesNoLabels(_('More Info'), wx.ID_OK)
+        r = d.ShowModal()
+        if r == wx.ID_YES:
+            webbrowser.open(link)
 
     def run_safe(self, fn, args, kwargs):
         try:
             return fn(*args, **kwargs)
         except self._expected as e:
             LOG.error('%s: %s' % (fn, e))
-            self.show_error(e)
+            self.show_error(e, title=self.title)
         except Exception as e:
             LOG.exception('%s raised unexpected exception' % fn)
-            self.show_error(e)
+            self.show_error(e, title=self.title)
 
     def __call__(self, fn):
         self.fn = fn
@@ -764,20 +778,57 @@ class MultiErrorDialog(wx.Dialog):
 
 
 @contextlib.contextmanager
-def expose_logs(level, root, label, maxlen=128, parent=None):
+def expose_logs(level, root, label, maxlen=128, parent=None,
+                show_on_raise=True):
     if not isinstance(root, tuple):
         root = (root,)
+
+    error = None
 
     mgrs = (logger.log_history(level, x) for x in root)
     with contextlib.ExitStack() as stack:
         histories = [stack.enter_context(m) for m in mgrs]
         try:
             yield
+        except Exception as e:
+            LOG.exception('Failure while capturing logs (showing=%s): %s',
+                          show_on_raise, e)
+            error = e
         finally:
             lines = list(itertools.chain.from_iterable(x.get_history()
                                                        for x in histories))
-            if lines:
+            if lines and (show_on_raise or not error):
+                LOG.warning('Showing %i lines of logs', len(lines))
                 d = MultiErrorDialog(parent)
                 d.SetTitle(label)
                 d.set_errors(lines)
                 d.ShowModal()
+            else:
+                LOG.warning('Not showing %i lines of logs (error=%s,show=%s)',
+                            len(lines), bool(error), show_on_raise)
+            if error:
+                raise error
+
+
+def mems_from_clipboard(string, maxlen=128, parent=None):
+    label = _('Paste external memories')
+    radio = generic_csv.TSVRadio(None)
+    radio.clear()
+    # Try to load the whole thing as a full TSV with header row
+    try:
+        with expose_logs(logging.WARNING, 'chirp.drivers', label,
+                         parent=parent, show_on_raise=False):
+            radio.load_from(string)
+            return [x for x in radio.get_memories() if not x.empty]
+    except errors.InvalidDataError:
+        LOG.debug('No header information found in TSV paste')
+    except RuntimeError:
+        pass
+
+    # If we got no memories, try prefixing the default header row and repeat
+    header = generic_csv.TSVRadio.SEPCHAR.join(chirp_common.Memory.CSV_FORMAT)
+    string = os.linesep.join([header, string])
+    with expose_logs(logging.WARNING, 'chirp.drivers', label, parent=parent):
+        radio.load_from(string)
+
+    return [x for x in radio.get_memories() if not x.empty]

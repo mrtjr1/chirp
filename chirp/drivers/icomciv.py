@@ -1,4 +1,4 @@
-# Latest update: April, 2021 Add hasattr test at line 564
+# Latest update: Jan, 2025 add IC7410 support
 import struct
 import logging
 from chirp.drivers import icf
@@ -239,6 +239,34 @@ bbcd dtcs_tx[2];
 char name[8];
 """
 
+MEM_IC7410_FORMAT = """
+bbcd number[2];
+u8   duplex:4,                // 3 split and select memory settings
+     select:4;
+lbcd freq[5];
+u8   mode;
+u8   filter;
+u8   unknown2:7,
+     dig:1;
+u8   unknown3:6,
+     tmode:2;
+bbcd rtone[3];
+bbcd ctone[3];
+// As with IC-7300 it seems the following are duplicated parameters save for
+// `dig` which seem to be zeroed in unknown5
+lbcd duplexOffset[5];
+u8   mode_tx;
+u8   filter_tx;
+u8   unknown5:7,
+     dig_tx:1;
+u8   unknown6:6,
+     skip:2;
+bbcd rtone_tx[3];
+bbcd ctone_tx[3];
+// End TX duplicate block
+char name[9];
+"""
+
 MEM_IC7610_FORMAT = """
 bbcd number[2];            // 1,2
 u8   spl:4,                // 3 split and select memory settings
@@ -408,6 +436,12 @@ class IC7400MemFrame(MemFrame):
     def get_obj(self):
         self._data = MemoryMapBytes(bytes(self._data))
         return bitwise.parse(MEM_IC7400_FORMAT, self._data)
+
+
+class IC7410MemFrame(MemFrame):
+    def get_obj(self):
+        self._data = MemoryMapBytes(bytes(self._data))
+        return bitwise.parse(MEM_IC7410_FORMAT, self._data)
 
 
 class IC7300MemFrame(MemFrame):
@@ -621,6 +655,10 @@ class IcomCIVRadio(icf.IcomLiveRadio):
             loc = "number %i" % ch
         self._send_frame(f)
         f.read(self.pipe)
+        try:
+            self.get_memory(number)
+        except Exception as e:
+            LOG.exception('Failed to get/parse test memory: %s', e)
         if f.get_data() and f.get_data()[-1] == "\xFF":
             return "Memory " + loc + " empty."
         else:
@@ -723,7 +761,7 @@ class IcomCIVRadio(icf.IcomLiveRadio):
             mem.name = str(memobj.name).rstrip()
 
         if self._rf.valid_tmodes:
-            mem.tmode = self._rf.valid_tmodes[memobj.tmode]
+            self._decode_tmode(mem, memobj)
 
         if self._rf.has_dtcs_polarity:
             if memobj.dtcs_polarity == 0x11:
@@ -736,7 +774,7 @@ class IcomCIVRadio(icf.IcomLiveRadio):
                 mem.dtcs_polarity = "NN"
 
         if self._rf.has_dtcs:
-            mem.dtcs = bitwise.bcd_to_int(memobj.dtcs)
+            mem.dtcs = int(memobj.dtcs)
 
         if "Tone" in self._rf.valid_tmodes:
             mem.rtone = int(memobj.rtone) / 10.0
@@ -849,7 +887,7 @@ class IcomCIVRadio(icf.IcomLiveRadio):
             memobj.name = mem.name.ljust(name_length)[:name_length]
 
         if self._rf.valid_tmodes:
-            memobj.tmode = self._rf.valid_tmodes.index(mem.tmode)
+            self._encode_tmode(mem, memobj)
 
         if self._rf.has_ctone:
             memobj.ctone = int(mem.ctone * 10)
@@ -866,7 +904,7 @@ class IcomCIVRadio(icf.IcomLiveRadio):
                 memobj.dtcs_polarity = 0x00
 
         if self._rf.has_dtcs:
-            bitwise.int_to_bcd(memobj.dtcs, mem.dtcs)
+            memobj.dtcs = mem.dtcs
 
         if self._rf.can_odd_split and mem.duplex == "split":
             memobj.spl = 1
@@ -895,6 +933,12 @@ class IcomCIVRadio(icf.IcomLiveRadio):
 
         f = self._recv_frame()
         LOG.debug("Result:\n%s" % util.hexprint(bytes(f.get_data())))
+
+    def _encode_tmode(self, mem, memobj):
+        memobj.tmode = self._rf.valid_tmodes.index(mem.tmode)
+
+    def _decode_tmode(self, mem, memobj):
+        mem.tmode = self._rf.valid_tmodes[memobj.tmode]
 
 
 @directory.register
@@ -974,7 +1018,7 @@ class Icom7100Radio(IcomCIVRadio):
         self._rf.has_dtcs_polarity = False
         self._rf.has_dtcs = False
         self._rf.has_ctone = True
-        self._rf.has_offset = False
+        self._rf.has_offset = True
         self._rf.has_name = True
         self._rf.has_tuning_step = False
         self._rf.valid_modes = [
@@ -1056,6 +1100,68 @@ class Icom7400Radio(IcomCIVRadio):
             "abcdefghijklmnopqrstuvwxyz" \
             "{|}~"
         self._rf.memory_bounds = (1, 99)
+
+
+@directory.register
+class Icom7410Radio(IcomCIVRadio):
+    """Icom IC-7410"""
+    MODEL = "IC-7410"
+    BAUD_RATE = 9600
+    _model = "\x80"
+    _template = 99
+
+    _num_banks = 1        # Banks not supported
+
+    _SPECIAL_CHANNELS = {
+        "P1": 100,
+        "P2": 101,
+    }
+    _SPECIAL_CHANNELS_REV = dict(zip(_SPECIAL_CHANNELS.values(),
+                                     _SPECIAL_CHANNELS.keys()))
+
+    def _is_special(self, number):
+        return isinstance(number, str) or number > 99
+
+    def _get_special_info(self, number):
+        info = SpecialChannel()
+        if isinstance(number, str):
+            info.name = number
+            info.channel = self._SPECIAL_CHANNELS[number]
+            info.location = info.channel
+        else:
+            info.location = number
+            info.name = self._SPECIAL_CHANNELS_REV[number]
+            info.channel = info.location
+        return info
+
+    def _initialize(self):
+        self._classes["mem"] = IC7410MemFrame
+        self._rf.has_bank = False
+        self._rf.has_dtcs_polarity = False
+        self._rf.has_dtcs = False
+        self._rf.has_ctone = True
+        self._rf.has_offset = False
+        self._rf.has_name = True
+        self._rf.has_tuning_step = False
+        self._rf.valid_modes = [
+            "LSB", "USB", "AM", "CW", "RTTY", "FM", "CWR", "RTTYR",
+            "Data+LSB", "Data+USB", "Data+AM", "N/A", "N/A", "Data+FM"
+        ]
+        self._rf.valid_tmodes = ["", "Tone", "TSQL"]
+        self._rf.valid_duplexes = ["", "split"]
+        self._rf.valid_bands = [(30000, 60000000)]
+        self._rf.valid_tuning_steps = []
+        self._rf.valid_skips = []
+        self._rf.valid_name_length = 9
+        self._rf.valid_characters = " !#$%&'()*+,-./" \
+            "0123456789" \
+            ":;<=>?" \
+            "ABCDEFGHIJKLMNOPQRSTUVWXYZ" \
+            "[\\]^_" \
+            "abcdefghijklmnopqrstuvwxyz" \
+            "{|}~"
+        self._rf.memory_bounds = (1, 99)
+        self._rf.valid_special_chans = sorted(self._SPECIAL_CHANNELS.keys())
 
 
 @directory.register
@@ -1242,6 +1348,12 @@ class Icom9700Radio(IcomCIVRadio):
         "RTTY-R", None, None, None, None, None, None, None, None, None,
         "DV", None, None, None, None, "DD", None, None, None, None, None,
     ]
+    _CROSS_MODES = {
+        4: 'DTCS->',
+        5: 'Tone->DTCS',
+        6: 'DTCS->Tone',
+        7: 'Tone->Tone',
+    }
 
     def get_sub_devices(self):
         return [Icom9700RadioBand(self, 1),
@@ -1254,6 +1366,21 @@ class Icom9700Radio(IcomCIVRadio):
         self._rf.has_sub_devices = True
         self._rf.memory_bounds = (1, 99)
         self._classes['mem'] = IC9700MemFrame
+
+    def _decode_tmode(self, mem, memobj):
+        if int(memobj.tmode) in self._CROSS_MODES:
+            mem.tmode = 'Cross'
+            mem.cross_mode = self._CROSS_MODES[int(memobj.tmode)]
+        else:
+            return super()._decode_tmode(mem, memobj)
+
+    def _encode_tmode(self, mem, memobj):
+        cmr = {v: k for k, v in self._CROSS_MODES.items()}
+        if mem.tmode == 'Cross':
+            memobj.tmode = cmr[mem.cross_mode]
+            print('Setting tmode to %s for %s' % (memobj.tmode, mem.tmode))
+        else:
+            return super()._encode_tmode(mem, memobj)
 
 
 class Icom9700RadioBand(Icom9700Radio):
@@ -1301,7 +1428,8 @@ class Icom9700RadioBand(Icom9700Radio):
     def _initialize(self):
         super()._initialize()
         self._rf.has_name = True
-        self._rf.valid_tmodes = ['', 'Tone', 'TSQL', 'DTCS']
+        self._rf.valid_tmodes = ['', 'Tone', 'TSQL', 'DTCS', 'Cross']
+        self._rf.valid_cross_modes = list(self._CROSS_MODES.values())
         self._rf.has_dtcs = True
         self._rf.has_dtcs_polarity = True
         self._rf.has_bank = True
@@ -1337,6 +1465,7 @@ class Icom9700SatelliteBand(Icom9700Radio):
         super()._initialize()
         self._rf.has_name = True
         self._rf.valid_tmodes = ['', 'Tone', 'TSQL', 'DTCS']
+        self._rf.has_ctone = True
         self._rf.has_dtcs = True
         self._rf.has_dtcs_polarity = True
         self._rf.has_bank = False
@@ -1395,7 +1524,7 @@ class Icom9700SatelliteBand(Icom9700Radio):
         else:
             mem.dtcs_polarity = "NN"
 
-        mem.dtcs = bitwise.bcd_to_int(memobj.dtcs)
+        mem.dtcs = int(memobj.dtcs)
         mem.rtone = int(memobj.rtone) / 10.0
         mem.ctone = int(memobj.ctone) / 10.0
         mem.duplex = 'split'
@@ -1460,7 +1589,7 @@ class Icom9700SatelliteBand(Icom9700Radio):
         else:
             memobj.dtcs_polarity = 0x00
 
-        bitwise.int_to_bcd(memobj.dtcs, mem.dtcs)
+        memobj.dtcs = mem.dtcs
 
         memobj.tx.freq = int(mem.offset)
         memobj.tx.tmode = memobj.tmode

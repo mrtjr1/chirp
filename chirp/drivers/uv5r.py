@@ -392,7 +392,7 @@ def _do_ident(radio, magic, secondack=True):
     if ack != b"\x06":
         if ack:
             LOG.debug(repr(ack))
-        raise errors.RadioError("Radio did not respond")
+        raise errors.RadioNoContactLikelyK1()
 
     serial.write(b"\x02")
 
@@ -555,7 +555,7 @@ def _ident_radio(radio):
 
     if error:
         raise error
-    raise errors.RadioError("Radio did not respond")
+    raise errors.RadioNoContactLikelyK1()
 
 
 def _do_download(radio):
@@ -1473,15 +1473,24 @@ class BaofengUV5R(chirp_common.CloneModeRadio):
                     obj.freq[i] = value % 10
                     value /= 10
 
-            val1a = RadioSettingValueString(0, 10,
-                                            bfc.bcd_decode_freq(_vfoa.freq))
+            try:
+                vafreq = bfc.bcd_decode_freq(_vfoa.freq)
+            except Exception as e:
+                LOG.exception('Failed to decode VFO A frequency: %s', e)
+                vafreq = e
+
+            val1a = RadioSettingValueString(0, 10, vafreq)
             val1a.set_validate_callback(my_validate)
             rs = RadioSetting("vfoa.freq", "VFO A Frequency", val1a)
             rs.set_apply_callback(apply_freq, _vfoa)
             workmode.append(rs)
 
-            val1b = RadioSettingValueString(0, 10,
-                                            bfc.bcd_decode_freq(_vfob.freq))
+            try:
+                vbfreq = bfc.bcd_decode_freq(_vfob.freq)
+            except Exception as e:
+                LOG.exception('Failed to decode VFO B frequency: %s', e)
+                vbfreq = e
+            val1b = RadioSettingValueString(0, 10, vbfreq)
             val1b.set_validate_callback(my_validate)
             rs = RadioSetting("vfob.freq", "VFO B Frequency", val1b)
             rs.set_apply_callback(apply_freq, _vfob)
@@ -1899,6 +1908,46 @@ class A5RAlias(chirp_common.Alias):
 class BaofengUV5RGeneric(BaofengUV5R):
     ALIASES = [UV5XAlias, RT5RAlias, RT5RVAlias, RT5Alias, RH5RAlias,
                ROUV5REXAlias, A5RAlias]
+
+
+@directory.register
+class BaofengUV5GPro(BaofengUV5R):
+    MODEL = "UV-5G Pro"
+    _airband = (108000000, 136000000)
+
+    def get_features(self):
+        rf = super().get_features()
+        rf.valid_bands = [(108000000, 174000000),
+                          (220000000, 260000000),
+                          (350000000, 390000000),
+                          (400000000, 520000000)]
+        rf.valid_modes.append('AM')
+        return rf
+
+    @classmethod
+    def match_model(cls, filename, filedata):
+        return False
+
+    def get_memory(self, number):
+        mem = super().get_memory(number)
+        if chirp_common.in_range(mem.freq, [self._airband]):
+            # UV-5G Pro is AM in 108-136 MHz range
+            mem.mode = 'AM'
+        elif mem.mode == 'AM':
+            mem.mode = 'FM'
+        return mem
+
+    def validate_memory(self, mem):
+        msgs = super().validate_memory(mem)
+        if (chirp_common.in_range(mem.freq, [self._airband]) and
+                not mem.mode == 'AM'):
+            msgs.append(chirp_common.ValidationWarning(
+                _('Frequency in this range requires AM mode')))
+        if (not chirp_common.in_range(mem.freq, [self._airband]) and
+                mem.mode == 'AM'):
+            msgs.append(chirp_common.ValidationWarning(
+                _('Frequency in this range must not be AM mode')))
+        return msgs
 
 
 @directory.register

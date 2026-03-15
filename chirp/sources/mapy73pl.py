@@ -16,33 +16,37 @@
 import logging
 
 import requests
+import wx
 
 from chirp.drivers import generic_csv
 from chirp import errors
 from chirp.sources import base
 
+_ = wx.GetTranslation
 LOG = logging.getLogger(__name__)
 
 
-class Przemienniki(base.NetworkResultRadio):
-    VENDOR = 'przemienniki.net'
+class Mapy73Pl(base.NetworkResultRadio):
+    VENDOR = 'mapy73.pl'
 
     def get_label(self):
-        return 'przemienniki.net'
+        return 'mapy73.pl'
 
     def do_fetch(self, status, params):
-        status.send_status('Querying', 10)
-        if not params['range'] or int(params['range']) == 0:
-            params.pop('range')
+        status.send_status(_('Querying'), 10)
         LOG.debug('query params: %s' % str(params))
+        if 'api_option' in params:
+            export = params['api_option']
+        else:
+            export = ''
+
+        base_url = 'https://cache.mapy73.pl/snapshot/repeaters/export/chirp/'
+        request_url = base_url + export
         try:
-            r = requests.get('http://przemienniki.net/export/chirp.csv',
-                             headers=base.HEADERS,
-                             params=params,
-                             stream=True)
+            r = requests.get(request_url, headers=base.HEADERS)
             r.raise_for_status()
         except requests.exceptions.RequestException as e:
-            LOG.error('Failed to query przemienniki: %s' % e)
+            LOG.error('Failed to query mapy73.pl: %s' % e)
             status.send_fail(_('Unable to query'))
             return
         status.send_status(_('Parsing'), 20)
@@ -59,13 +63,10 @@ class Przemienniki(base.NetworkResultRadio):
 
         status.send_status(_('Sorting'), 80)
 
-        self._memories = [csv.get_memory(x) for x in range(1, 999)
+        self._memories = [csv.get_memory(x) for x in range(0, 999)
                           if not csv.get_memory(x).empty]
-        if not any([params['latitude'], params['longitude']]):
-            LOG.debug('Sorting memories by name')
-            self._memories.sort(key=lambda m: m.name)
-            # Now renumber them
-            for i, mem in enumerate(self._memories):
-                mem.number = i + 1
+        self._memories.sort(key=lambda m: m.name)
+        for i, mem in enumerate(self._memories):
+            mem.number = i + 1
 
         return status.send_end()

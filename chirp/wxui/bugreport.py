@@ -14,11 +14,14 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 import datetime
+import gzip
 import logging
 import os
 import platform
+import subprocess
 import tempfile
 import threading
+import time
 
 import requests
 import wx
@@ -30,6 +33,7 @@ from chirp import logger
 from chirp import platform as chirp_platform
 from chirp.wxui import common
 from chirp.wxui import config
+from chirp.wxui import serialtrace
 
 _ = wx.GetTranslation
 CONF = config.get()
@@ -44,6 +48,34 @@ def get_chirp_platform():
     return 'MacOS' if p == 'Darwin' else p
 
 
+def get_macos_system_info(manifest):
+    try:
+        sp = subprocess.check_output(
+            'system_profiler SPSoftwareDataType SPUSBDataType',
+            shell=True)
+    except Exception as e:
+        sp = 'Error getting system_profiler data: %s' % e
+    manifest['files']['macos_system_info.txt'] = sp
+
+
+def get_linux_system_info(manifest):
+    try:
+        sp = subprocess.check_output('lsusb',
+                                     shell=True)
+    except Exception as e:
+        sp = 'Error getting system data: %s' % e
+    manifest['files']['linux_system_info.txt'] = sp
+
+
+def get_windows_system_info(manifest):
+    try:
+        sp = subprocess.check_output('pnputil /enum-devices /connected',
+                                     shell=True)
+    except Exception as e:
+        sp = 'Error getting system data: %s' % e
+    manifest['files']['win_system_info.txt'] = sp
+
+
 @common.error_proof()
 def prepare_report(chirpmain):
     manifest = {'files': {}}
@@ -54,16 +86,16 @@ def prepare_report(chirpmain):
     LOG.debug('Capturing config file %s stamped %s', conf_fn,
               datetime.datetime.fromtimestamp(
                   os.stat(conf_fn).st_mtime).isoformat())
-    with open(conf_fn) as f:
+    with open(conf_fn, 'rb') as f:
         config_lines = f.readlines()
     clean_lines = []
     for line in list(config_lines):
-        if 'password' in line:
-            key, value = line.split('=', 1)
-            value = '***REDACTED***'
-            line = '%s = %s' % (key.strip(), value)
+        if b'password' in line:
+            key, value = line.split(b'=', 1)
+            value = b'***REDACTED***'
+            line = b'%s = %s' % (key.strip(), value)
         clean_lines.append(line.strip())
-    manifest['files']['config.txt'] = '\n'.join(clean_lines)
+    manifest['files']['config.txt'] = b'\n'.join(clean_lines)
 
     # Attach the currently-open file
     editor = chirpmain.current_editorset
@@ -75,12 +107,35 @@ def prepare_report(chirpmain):
         with open(tmpf, 'rb') as f:
             manifest['files'][os.path.basename(editor.filename)] = f.read()
 
+    # Gather system details, if available
+    system = platform.system()
+    if system == 'Darwin':
+        LOG.debug('Capturing macOS system_profiler data')
+        get_macos_system_info(manifest)
+    elif system == 'Linux':
+        LOG.debug('Capturing linux system info')
+        get_linux_system_info(manifest)
+    elif system == 'Windows':
+        LOG.debug('Capturing windows system info')
+        get_windows_system_info(manifest)
+    else:
+        LOG.debug('No system info support for %s', system)
+
     # Snapshot debug log last
     if logger.Logger.instance.has_debug_log_file:
         tmp = common.temporary_debug_log()
-        with open(tmp) as f:
+        with open(tmp, 'rb') as f:
             manifest['files']['debug_log.txt'] = f.read()
         tmpf = tempfile.mktemp('.config', 'chirp')
+
+    # Grab any trace files
+    for tracefile in serialtrace.TRACEFILES:
+        if os.path.exists(tracefile):
+            LOG.debug('Capturing serial trace file %s', tracefile)
+            with open(tracefile, 'rb') as f:
+                manifest['files'][os.path.basename(tracefile)] = f.read()
+        else:
+            LOG.debug('Serial trace file %s does not exist', tracefile)
 
     return manifest
 
@@ -93,6 +148,7 @@ class BugReportContext:
         self.session = requests.Session()
         self.session.headers = {
             'User-Agent': 'CHIRP/%s' % CHIRP_VERSION,
+            'Referer': 'https://chirpmyradio.com/projects/chirp/issues/new',
         }
 
     def get_page(self, name, cls):
@@ -310,12 +366,15 @@ class NewBugInfo(BugReportPage):
     INST = _('Enter information about the bug including a short but '
              'meaningful subject and information about the radio model '
              '(if applicable) in question. In the next step you will have '
-             'a chance to add more details about the problem.')
+             'a chance to add more details about the problem. '
+             'Before proceeding, please search for duplicate issues!')
 
     def _build(self, vbox):
         self.context.bugsubj = self.context.bugmodel = None
+        self.searched_dupes = None
+
         panel = wx.Panel(self)
-        vbox.Add(panel, 1, border=20, flag=wx.EXPAND)
+        vbox.Add(panel, 0, border=20, flag=wx.EXPAND | wx.BOTTOM)
         grid = wx.FlexGridSizer(2, 5, 0)
         grid.AddGrowableCol(1)
         panel.SetSizer(grid)
@@ -326,6 +385,7 @@ class NewBugInfo(BugReportPage):
         self.subj = wx.TextCtrl(panel)
         self.subj.SetMaxLength(100)
         self.subj.Bind(wx.EVT_TEXT, self.validate_next)
+        self.subj.SetFocus()
         grid.Add(self.subj, 1, border=20,
                  flag=wx.EXPAND | wx.RIGHT | wx.LEFT)
 
@@ -342,8 +402,29 @@ class NewBugInfo(BugReportPage):
                 self.context.editor._radio.VENDOR,
                 self.context.editor._radio.MODEL))
 
+        hbox = wx.BoxSizer(wx.HORIZONTAL)
+        panel = wx.Panel(self)
+        panel.SetSizer(hbox)
+        self.searched_dupes = wx.CheckBox(
+            panel, label=_('I have'))
+        self.searched_dupes.Bind(wx.EVT_CHECKBOX, self.validate_next)
+        hbox.AddStretchSpacer(1)
+        hbox.Add(self.searched_dupes, 0)
+        hbox.Add(
+            wx.adv.HyperlinkCtrl(
+                panel,
+                label=_('searched for duplicate issues'),
+                url=BASE + ('/projects/chirp/search?utf8=%E2%9C%93&'
+                            'q=&scope=&all_words=&all_words=1&titles_only=&'
+                            'issues=1&attachments=0&options=0&commit=Search')),
+            0)
+        hbox.AddStretchSpacer(1)
+
+        vbox.Add(panel, 0, border=20, flag=wx.EXPAND | wx.BOTTOM)
+
     def _validate_next(self):
-        return len(self.subj.GetValue()) > 10
+        return (len(self.subj.GetValue()) > 10 and
+                self.searched_dupes.GetValue())
 
     def validate_success(self, *a):
         self.context.bugsubj = self.subj.GetValue()
@@ -393,6 +474,16 @@ class ExistingBugInfo(BugReportPage):
                              _('An error has occurred'),
                              style=wx.OK | wx.ICON_ERROR).ShowModal()
             event.Veto()
+        elif r.json()['issue']['status']['is_closed']:
+            LOG.error('Issue %s is closed', self.context.bugnum)
+            wx.MessageDialog(
+                self,
+                _('Please check the bug number and try again. If you do '
+                  'actually want to report against this bug, please comment '
+                  'on it via the website and ask for it to be re-opened.'),
+                _('Bug number %s is closed') % self.context.bugnum
+                ).ShowModal()
+            event.Veto()
         else:
             LOG.debug('Validated issue %s', self.context.bugnum)
 
@@ -407,29 +498,33 @@ class BugUpdateInfo(BugReportPage):
     INST = _('Enter details about this update. Be descriptive about what '
              'you were doing, what you expected to happen, and what '
              'actually happened.')
+    DEFAULT = '\n'.join([
+            _('(Describe what you were doing)'),
+            '',
+            _('(Describe what you expected to happen)'),
+            '',
+            _('(Describe what actually happened instead)'),
+            '',
+            _('(Has this ever worked before? New radio? '
+                'Does it work with OEM software?)'),
+    ])
 
     def _build(self, vbox):
         self.context.bugdetails = None
-        self.details = wx.TextCtrl(self, style=wx.TE_MULTILINE)
-        self.details.SetHint(_('Enter information to add to the bug here'))
+        self.details = wx.TextCtrl(self, style=wx.TE_MULTILINE,
+                                   value=self.DEFAULT)
+        try:
+            self.details.SetHint(_('Enter information to add to the bug here'))
+        except Exception:
+            # Older wx doesn't allow this on multi-line fields (?)
+            pass
         self.details.Bind(wx.EVT_TEXT, self.validate_next)
         vbox.Add(self.details, 1, border=20,
                  flag=wx.EXPAND | wx.LEFT | wx.RIGHT)
 
     def _validate_next(self):
-        if self.details.GetValue() == '' and self.context.is_new:
-            self.details.SetValue('\n'.join([
-                _('(Describe what you were doing)'),
-                '',
-                _('(Describe what you expected to happen)'),
-                '',
-                _('(Describe what actually happened instead)'),
-                '',
-                _('(Has this ever worked before? New radio? '
-                  'Does it work with OEM software?)'),
-            ]))
-
-        return len(self.details.GetValue()) > 10
+        current = self.details.GetValue()
+        return len(current) > 10 and current != self.DEFAULT
 
     def validate_success(self, *a):
         self.context.bugdetails = self.details.GetValue()
@@ -547,34 +642,67 @@ class ResultPage(BugReportPage):
         self.context.bugnum = manifest['issue']
         LOG.info('Created new issue %s', manifest['issue'])
 
+    def _upload_file(self, manifest, fn):
+        for i in range(3):
+            LOG.debug('Uploading %s attempt %i', fn, i + 1)
+            try:
+                r = self.context.session.post(
+                    BASE + '/uploads.json',
+                    params={'filename': fn},
+                    data=manifest['files'][fn],
+                    headers={
+                        'Content-Type': 'application/octet-stream'},
+                    auth=self.context.auth)
+            except Exception as e:
+                LOG.error('Exception uploading %s: %s', fn, e)
+                time.sleep(2 + (2 * i))
+                continue
+            if r.status_code >= 400:
+                LOG.error('Failed to upload %s: %s %s',
+                          fn, r.status_code, r.reason)
+                time.sleep(2 + (2 * i))
+                continue
+            elif r.status_code != 201:
+                LOG.error('Failed to upload %s: %s %s',
+                          fn, r.status_code, r.reason)
+                raise Exception('Failed to upload file: %s' % r.reason)
+            return r.json()['upload']['token']
+        raise Exception('Failed to upload %s after multiple attempts', fn)
+
     def _send_report(self, manifest):
         if 'issue' not in manifest:
             self._create_bug(manifest)
 
-        tokens = []
-        for fn in manifest['files']:
-            LOG.debug('Uploading %s', fn)
-            r = self.context.session.post(
-                BASE + '/uploads.json',
-                params={'filename': fn},
-                data=manifest['files'][fn],
-                headers={
-                    'Content-Type': 'application/octet-stream'},
-                auth=self.context.auth)
-            if r.status_code != 201:
-                LOG.error('Failed to upload %s: %s %s',
-                          fn, r.status_code, r.reason)
-                raise Exception('Failed to upload file')
-            if fn.lower().endswith('.img'):
-                ct = 'application/octet-stream'
-            else:
-                ct = 'text/plain'
-            tokens.append({'token': r.json()['upload']['token'],
-                           'filename': fn,
-                           'content_type': ct})
-        LOG.debug('File tokens: %s', tokens)
+        for fn in list(manifest['files'].keys()):
+            fdata = manifest['files'][fn]
+            if len(fdata) > 1024 * 1024:
+                LOG.warning('File %s is larger than 1MB, compressing', fn)
+                fdata = gzip.compress(fdata)
+                manifest['files'].pop(fn)
+                fn += '.gz'
+                manifest['files'][fn] = fdata
 
         notes = '[Uploaded from CHIRP %s]\n\n' % CHIRP_VERSION
+        tokens = []
+        for fn in manifest['files']:
+            try:
+                token = self._upload_file(manifest, fn)
+            except Exception as e:
+                LOG.error('Failed to upload file %s: %s', fn, e)
+                notes += '[Failed to upload file %s: %s]\n\n' % (fn, e)
+                continue
+            ext = os.path.splitext(fn)[1].lower()
+            if ext in ('.log', '.txt'):
+                ct = 'text/plain'
+            else:
+                ct = 'application/octet-stream'
+            token_info = {'token': token,
+                          'filename': fn,
+                          'content_type': ct}
+            tokens.append(token_info)
+
+        LOG.debug('File tokens: %s', tokens)
+
         if not self.context.is_new:
             notes += manifest['desc']
         r = self.context.session.put(

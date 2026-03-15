@@ -1,4 +1,5 @@
 import datetime
+import glob
 import json
 import logging
 import math
@@ -10,7 +11,7 @@ from chirp import chirp_common
 from chirp import errors
 from chirp import platform as chirp_platform
 from chirp.sources import base
-from chirp.wxui import fips
+from chirp.sources import fips
 
 LOG = logging.getLogger(__name__)
 
@@ -79,13 +80,17 @@ class RepeaterBook(base.NetworkResultRadio):
     def get_label(self):
         return 'RepeaterBook'
 
+    @staticmethod
+    def get_resource_name(service, country, state):
+        return 'rb%s-%s-%s.json' % (service,
+                                    country.lower().replace(' ', '_'),
+                                    state.lower().replace(' ', '_'))
+
     def get_data(self, status, country, state, service):
         # Ideally we would be able to pull the whole database, but right
         # now this is limited to 3500 results, so we need to filter and
         # cache by state to stay under that limit.
-        fn = 'rb%s-%s-%s.json' % (service,
-                                  country.lower().replace(' ', '_'),
-                                  state.lower().replace(' ', '_'))
+        fn = self.get_resource_name(service, country, state)
         db_dir = chirp_platform.get_platform().config_file('repeaterbook')
         try:
             os.mkdir(db_dir)
@@ -126,7 +131,10 @@ class RepeaterBook(base.NetworkResultRadio):
         if r.status_code != 200:
             if modified:
                 status.send_status('Using cached data', 50)
-            status.send_fail('Got error code %i from server' % r.status_code)
+            status.send_fail('Got error code %i (%s) from server' % (
+                r.status_code, r.reason))
+            LOG.error('Repeaterbook query %r returned %i (%s)',
+                      r.url, r.status_code, r.reason)
             return
         tmp = data_file + '.tmp'
         chunk_size = 8192
@@ -143,6 +151,9 @@ class RepeaterBook(base.NetworkResultRadio):
             results = json.loads(data)
         except Exception as e:
             LOG.exception('Invalid JSON in response: %s' % e)
+            LOG.error('Repeaterbook query %r returned %i',
+                      r.url, r.status_code)
+            LOG.error('Start of data:%s%s', os.linesep, data[:256])
             status.send_fail('RepeaterBook returned invalid response')
             return
 
@@ -161,15 +172,33 @@ class RepeaterBook(base.NetworkResultRadio):
         status.send_status('Download complete', 50)
         return data_file
 
-    def item_to_memory(self, item, number):
-        if item.get('D-Star') == 'Yes':
+    def _merge_cached(self, service, country, data, exclude_file):
+        db_dir = chirp_platform.get_platform().config_file('repeaterbook')
+        fn_pat = 'rb%s-%s-%s.json' % (service,
+                                      country.lower().replace(' ', '_'),
+                                      '*')
+        other_files = glob.glob(os.path.join(db_dir, fn_pat))
+        for fn in other_files:
+            if fn == exclude_file:
+                continue
+            with open(fn, 'rb') as f:
+                d = json.loads(f.read())
+                data['results'].extend(d['results'])
+                data['count'] += d['count']
+            LOG.debug('Loading %i cached entries from %s for proximity search',
+                      d['count'], os.path.basename(fn))
+
+    def item_to_memory(self, item, fmconv):
+        should_dstar = (
+            item.get('D-Star') == 'Yes' and not (
+                item.get('FM Analog') == 'Yes' and fmconv))
+        if should_dstar:
             m = chirp_common.DVMemory()
             m.dv_urcall = 'CQCQCQ'.ljust(8)
             m.dv_rpt1call = item.get('Callsign')[:8].ljust(8)
             m.dv_rpt2call = item.get('Callsign')[:8].ljust(8)
         else:
             m = chirp_common.Memory()
-        m.number = number
         m.freq = chirp_common.parse_freq(item['Frequency'])
         try:
             m.tuning_step = chirp_common.required_step(m.freq)
@@ -217,6 +246,7 @@ class RepeaterBook(base.NetworkResultRadio):
         modes = params.pop('modes', [])
         fmconv = params.pop('fmconv', False)
         openonly = params.pop('openonly')
+        cached = params.pop('cached')
 
         data_file = self.get_data(status,
                                   params.get('country'),
@@ -224,6 +254,12 @@ class RepeaterBook(base.NetworkResultRadio):
                                   params.get('service', ''))
         if not data_file:
             return
+
+        data = json.loads(open(data_file, 'rb').read())
+        if lat and lon and dist and cached:
+            self._merge_cached(params.get('service', ''),
+                               params.get('country'),
+                               data, data_file)
 
         status.send_status('Parsing', 50)
 
@@ -258,8 +294,7 @@ class RepeaterBook(base.NetworkResultRadio):
             return False
 
         i = 0
-        for item in sorted(json.loads(open(data_file, 'rb').read())['results'],
-                           key=sorter):
+        for item in sorted(data['results'], key=sorter):
             if not item:
                 continue
             if openonly and not open_repeater(item):
@@ -275,9 +310,8 @@ class RepeaterBook(base.NetworkResultRadio):
                 continue
             if not included_band(item):
                 continue
-            i += 1
             try:
-                m = self.item_to_memory(item, i)
+                m = self.item_to_memory(item, fmconv)
             except Exception as e:
                 LOG.warning('Unable to convert repeater %s: %s',
                             item['Rptr ID'], e)
@@ -291,6 +325,8 @@ class RepeaterBook(base.NetworkResultRadio):
                 m.mode = 'FM'
             if modes and m.mode not in modes:
                 continue
+            m.number = i
+            i += 1
             self._memories.append(m)
 
         self.MODEL = '%s %s' % (params.get('country'),
@@ -362,7 +398,6 @@ ROW_COUNTRIES = [
     "Liechtenstein",
     "Lithuania",
     "Luxembourg",
-    "Macedonia",
     "Malaysia",
     "Malta",
     "Moldova",
@@ -372,6 +407,7 @@ ROW_COUNTRIES = [
     "Netherlands",
     "New Zealand",
     "Nicaragua",
+    "North Macedonia",
     "Norway",
     "Oman",
     "Panama",
@@ -381,7 +417,7 @@ ROW_COUNTRIES = [
     "Poland",
     "Portugal",
     "Romania",
-    "Russian Federation",
+    "Russia",
     "Saint Kitts and Nevis",
     "Saint Vincent and the Grenadines",
     "San Marino",

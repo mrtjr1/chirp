@@ -3,11 +3,20 @@ from unittest import mock
 
 from chirp import bitwise
 from chirp import chirp_common
+from chirp import directory
 from chirp import errors
 from tests import base
 
 
 class TestCaseEdges(base.DriverTest):
+    def test_inherits_from_registered(self):
+        if self.rf.has_sub_devices:
+            devs = self.radio.get_sub_devices()
+        else:
+            devs = [self.radio]
+        for dev in devs:
+            directory.registered_class(dev.__class__)
+
     def test_longname(self):
         m = self.get_mem()
         m.name = ("X" * 256)  # Should be longer than any radio can handle
@@ -107,6 +116,22 @@ class TestCaseEdges(base.DriverTest):
                                 'to delete location %i' % loc)
                 break
 
+    def test_redelete_memory(self):
+        m = self.get_mem()
+        if 'empty' in m.immutable:
+            self.skipTest('Test memory is not deletable')
+
+        # Delete this memory
+        m.empty = True
+        self.radio.set_memory(m)
+
+        # Try to delete it again
+        self.radio.set_memory(m)
+
+        # Make sure it appears deleted
+        m2 = self.radio.get_memory(m.number)
+        self.assertTrue(m2.empty)
+
     def test_get_set_specials(self):
         if not self.rf.valid_special_chans:
             self.skipTest('Radio has no specials')
@@ -117,6 +142,11 @@ class TestCaseEdges(base.DriverTest):
             # radios have empty in the immutable set.
             if m1.empty:
                 m1.empty = False
+
+            self.assertIsInstance(m1.number, int,
+                                  ('Special memory %s number %r is not an '
+                                   'integer') % (name, m1.number))
+
             try:
                 del m1.extra
             except AttributeError:
@@ -149,6 +179,9 @@ class TestCaseEdges(base.DriverTest):
             self.assertEqual('', m.extd_number,
                              'Non-special memory %i should not have '
                              'extd_number set to %r' % (i, m.extd_number))
+            self.assertIsInstance(m.number, int,
+                                  'Memory number %r is not an integer' %
+                                  m.number)
 
     def test_get_memory_name_trailing_whitespace(self):
         if self.radio.MODEL == 'KG-UV8E':

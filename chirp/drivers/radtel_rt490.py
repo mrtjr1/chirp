@@ -243,7 +243,7 @@ struct {
 #seekto 0x3F80;             // Hmm hmm
 struct {
   u8 unknown_data_0[16];
-  u8 unknown_data_1;
+  u8 language;
   u8 active;                // Bool radio killed (killed=0, active=1)
   u8 unknown_data_2[46];
 } management_settings;
@@ -421,8 +421,8 @@ class RT490Radio(chirp_common.CloneModeRadio):
                (0x3FC0, 0x4000)
               ]
 
-    _valid_chars = chirp_common.CHARSET_ALPHANUMERIC + \
-        "`~!@#$%^&*()-=_+[]\\{}|;':\",./<>?"
+    def filter_name(self, name):
+        return name.encode('gb2312')[:12].decode('gb2312', errors='replace')
 
     if RT490_EXPERIMENTAL:
         # Experimental driver (already heavily tested)
@@ -673,38 +673,37 @@ class RT490Radio(chirp_common.CloneModeRadio):
         if dtmf_speed_on > len(self.DTMF_SPEEDS)-1:
             _mem.settings_dtmf.dtmf_speed_on = 0
             LOG.debug('DTMF Speed On overflow')
-        cur = self.DTMF_SPEEDS[dtmf_speed_on]
         dtmf.append(
             RadioSetting(
                 'settings_dtmf.dtmf_speed_on', 'DTMF Speed (on time in ms)',
-                RadioSettingValueList(self.DTMF_SPEEDS, cur)))
+                RadioSettingValueList(self.DTMF_SPEEDS,
+                                      current_index=dtmf_speed_on)))
         # DTMF Speed (on time in ms)
         dtmf_speed_off = int(_mem.settings_dtmf.dtmf_speed_off)
         if dtmf_speed_off > len(self.DTMF_SPEEDS)-1:
             _mem.settings_dtmf.dtmf_speed_off = 0
             LOG.debug('DTMF Speed Off overflow')
-        cur = self.DTMF_SPEEDS[dtmf_speed_off]
         dtmf.append(
             RadioSetting(
                 'settings_dtmf.dtmf_speed_off', 'DTMF Speed (off time in ms)',
-                RadioSettingValueList(self.DTMF_SPEEDS, cur)))
+                RadioSettingValueList(self.DTMF_SPEEDS,
+                                      current_index=dtmf_speed_off)))
         # PTT ID
         pttid = int(_mem.settings_dtmf.pttid)
         if pttid > len(self.PTTID)-1:
             _mem.settings_dtmf.pttid = 0
             LOG.debug('PTT ID overflow')
-        cur = self.PTTID[pttid]
         dtmf.append(
             RadioSetting(
                 'settings_dtmf.pttid', 'Send DTMF Code (PTT ID)',
-                RadioSettingValueList(self.PTTID, cur)))
+                RadioSettingValueList(self.PTTID, current_index=pttid)))
         # PTT ID Delay
         pttiddelay = int(_mem.settings.pttiddelay)
         if pttiddelay > len(self.PTTIDDELAYS)-1:
             _mem.settings.pttiddelay = 0
             LOG.debug('PTT ID  Delay overflow')
-        cur = self.PTTIDDELAYS[pttiddelay]
-        rsvl = RadioSettingValueList(self.PTTIDDELAYS, cur)
+        rsvl = RadioSettingValueList(self.PTTIDDELAYS,
+                                     current_index=pttiddelay)
         dtmf.append(RadioSetting('settings.pttiddelay',
                     'PTT ID Delay', rsvl))
         rsvl = RadioSettingValueList(self.DTMFSTLIST,
@@ -778,7 +777,7 @@ class RT490Radio(chirp_common.CloneModeRadio):
         chanwidth = ['Wide', 'Narrow']
         rsvl = RadioSettingValueList(
             chanwidth,
-            int(bool(_mem.settings_vfo['vfo_'+chan.lower()].narrow)))
+            current_index=int(_mem.settings_vfo['vfo_'+chan.lower()].narrow))
         ret.append(RadioSetting('settings_vfo.vfo_%s.narrow' % chan.lower(),
                                 'Wide / Narrow', rsvl))
         rsvl = RadioSettingValueList(self.TUNING_STEPS_LIST,
@@ -1021,6 +1020,14 @@ class RT490Radio(chirp_common.CloneModeRadio):
                            current_index=_mem.settings.powermsg)))
         ret.append(RadioSetting('settings.rx_time', 'Show RX Time',
                    RadioSettingValueBoolean(_mem.settings.rx_time)))
+
+        ret.append(RadioSetting(
+            'management_settings.language',
+            _('Language'),
+            RadioSettingValueList(
+                ['English', 'Chinese'],
+                current_index=_mem.management_settings.language)))
+
         return ret
 
     def _get_memcodes(self):
@@ -1084,7 +1091,8 @@ class RT490Radio(chirp_common.CloneModeRadio):
         return top
 
     def get_raw_memory(self, number):
-        return repr(self._memobj.memory[number])
+        return '\n'.join([repr(self._memobj.memory[number]),
+                          repr(self._memobj.memname[number])])
 
     # TODO Add Code when RadioSettingValueString is fixed
     def _get_extra(self, _mem, num):
@@ -1178,8 +1186,14 @@ class RT490Radio(chirp_common.CloneModeRadio):
             mem.empty = True
             return mem
 
-        mem.name = ''.join([str(c) for c in _nam.name
-                            if ord(str(c)) < 127]).rstrip()
+        try:
+            mem.name = bytes(
+                _nam.name.get_raw()).rstrip(b'\xFF').decode('gb2312')
+        except UnicodeDecodeError:
+            if _nam.name[0].get_raw() != b'\xFF':
+                LOG.error('Unable to decode name buffer %r',
+                          _nam.name.get_raw())
+            mem.name = ''
         mem.freq = int(_mem.rxfreq) * 10
         offset = (int(_mem.txfreq) - int(_mem.rxfreq)) * 10
         if self._is_txinh(_mem) or _mem.tx_enable == 0:
@@ -1235,9 +1249,7 @@ class RT490Radio(chirp_common.CloneModeRadio):
             LOG.debug('Initializing new memory %i' % memidx)
             _mem.set_raw(b'\x00' * 16)
 
-        _nam.name = mem.name.ljust(12, chr(255))  # with xFF pad (mimic factory
-        #                                           behavior)
-
+        _nam.name.set_raw(mem.name.encode('gb2312').ljust(12, b'\xFF')[:12])
         _mem.rxfreq = mem.freq / 10
         _mem.tx_enable = 1
         if mem.duplex == '':
@@ -1322,7 +1334,8 @@ class RT490Radio(chirp_common.CloneModeRadio):
         rf.can_odd_split = True
         rf.has_name = True
         rf.valid_name_length = 12
-        rf.valid_characters = self._valid_chars
+        # We implement filter_name() ourselves
+        rf.valid_characters = ''
         rf.valid_skips = ["", "S"]
         rf.valid_tmodes = ["", "Tone", "TSQL", "DTCS", "Cross"]
         rf.valid_cross_modes = ["Tone->Tone", "DTCS->", "->DTCS", "Tone->DTCS",

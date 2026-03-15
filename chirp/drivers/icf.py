@@ -131,7 +131,7 @@ class RadioStream:
                 end = self.data.index(b'\xFD')
                 frame = IcfFrame.parse(self.data[:end + 1])
                 self.data = self.data[end + 1:]
-                if frame.src == 0xEE and frame.dst == 0xEF:
+                if frame.src == ADDR_PC and frame.dst == ADDR_RADIO:
                     # PC echo, ignore
                     if self.iecho is None:
                         LOG.info('Detected an echoing cable')
@@ -181,28 +181,33 @@ class RadioStream:
             if len(f) != 0:
                 LOG.warning('Expected to read one echo frame, found %i',
                             len(f))
-            if f and f[0].src == 0xEF:
+            if f and f[0].src == ADDR_RADIO:
                 LOG.warning('Expected PC echo but found radio frame!')
 
 
 def decode_model(data):
-    if len(data) != 49:
+    if len(data) == 49:
+        rev = util.byte_to_int(data[5])
+        LOG.info('Radio revision is %i' % rev)
+        comment = data[6:6 + 16]
+        LOG.info('Radio comment is %r' % comment)
+        serial = binascii.unhexlify(data[35:35 + 14])
+        model, b1, b2, u1, s3 = struct.unpack('>HBBBH', serial)
+        serial_num = '%04i%02i%02i%04i' % (model, b1, b2, s3)
+        LOG.info('Radio serial is %r' % serial_num)
+    if len(data) == 56:
+        rev = None
+        comment = data[6:6 + 32]
+        LOG.info('Radio comment is %r' % comment)
+    else:
+        rev = None
         LOG.info('Unable to decode %i-byte model data' % len(data))
-        return None
-    rev = util.byte_to_int(data[5])
-    LOG.info('Radio revision is %i' % rev)
-    comment = data[6:6 + 16]
-    LOG.info('Radio comment is %r' % comment)
-    serial = binascii.unhexlify(data[35:35 + 14])
-    model, b1, b2, u1, s3 = struct.unpack('>HBBBH', serial)
-    serial_num = '%04i%02i%02i%04i' % (model, b1, b2, s3)
-    LOG.info('Radio serial is %r' % serial_num)
     return rev
 
 
 def get_model_data(radio, mdata=b"\x00\x00\x00\x00", stream=None):
     """Query the @radio for its model data"""
-    send_clone_frame(radio, 0xe0, mdata, raw=True)
+    send_clone_frame(radio, CMD_CLONE_ID, mdata, raw=True)
 
     if stream is None:
         stream = RadioStream(radio.pipe)
@@ -250,7 +255,7 @@ def send_clone_frame(radio, cmd, data, raw=False, checksum=False):
     if TRACE_ICF:
         LOG.debug('Sending:\n%s' % frame)
 
-    if cmd == 0xe4:
+    if cmd == CMD_CLONE_DAT:
         # Uncomment to avoid cloning to the radio
         # return frame
         pass
@@ -505,6 +510,9 @@ def _clone_to_radio(radio):
             LOG.debug("Waiting for clone result...")
             time.sleep(0.5)
 
+    if radio.ignore_clone_result():
+        return True
+
     if len(frames) == 0:
         raise errors.RadioError("Did not get clone result from radio")
     elif result.cmd != CMD_CLONE_OK:
@@ -758,7 +766,12 @@ class IcomBankModel(chirp_common.BankModel):
         if index is None:
             return []
         else:
-            return [self.get_mappings()[index]]
+            try:
+                return [self.get_mappings()[index]]
+            except IndexError:
+                LOG.error('Invalid bank index %i for memory %i' % (
+                          index, memory.number))
+                return []
 
 
 class IcomIndexedBankModel(IcomBankModel,
@@ -807,6 +820,7 @@ class IcomCloneModeRadio(chirp_common.CloneModeRadio):
 
     _model = "\x00\x00\x00\x00"  # 4-byte model string
     _endframe = ""               # Model-unique ending frame
+    _ignore_clone_ok = False
     _ranges = []                 # Ranges of the mmap to send to the radio
     _num_banks = 10              # Most simple Icoms have 10 banks, A-J
     _bank_index_bounds = (0, 99)
@@ -839,6 +853,10 @@ class IcomCloneModeRadio(chirp_common.CloneModeRadio):
     def get_endframe(self):
         """Returns the magic clone end frame for this radio"""
         return bytes([util.byte_to_int(x) for x in self._endframe])
+
+    def ignore_clone_result(self):
+        """ignore the result of a clone"""
+        return self._ignore_clone_ok
 
     def get_ranges(self):
         """Returns the ranges this radio likes to have in a clone"""
@@ -931,7 +949,9 @@ class IcomCloneModeRadio(chirp_common.CloneModeRadio):
         nice_name = listname.split('_', 1)[0].upper()
         group = RadioSettingGroup('%s_list' % listname,
                                   '%s List' % nice_name)
+        charset = chirp_common.CHARSET_UPPER_NUMERIC + '-'
         for i, cs in enumerate(current):
+            cs = ''.join(filter(lambda c: c in charset, cs))
             group.append(RadioSetting('%03i' % i, '%i' % i,
                                       RadioSettingValueString(0, 8, cs)))
         return group

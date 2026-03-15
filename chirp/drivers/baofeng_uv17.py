@@ -22,7 +22,7 @@ from chirp.settings import RadioSettingGroup, RadioSetting, \
     RadioSettings, RadioSettingValueString
 import struct
 from chirp.drivers import baofeng_common, baofeng_uv17Pro
-from chirp import errors, util
+from chirp import errors
 
 LOG = logging.getLogger(__name__)
 LIST_DTMFST = ["Off", "DT-ST", "ANI-ST", "DT+ANI"]
@@ -75,7 +75,7 @@ def _download(radio):
     status.msg = "Cloning from radio..."
     radio.status_fn(status)
 
-    for block_number in radio.BLOCK_ORDER:
+    for block_number in radio.BLOCK_O_READ:
         if block_number not in memory_map:
             # Memory block not found.
             LOG.error('Block %i (0x%x) not in memory map: %s',
@@ -88,14 +88,10 @@ def _download(radio):
         for addr in range(start_addr, start_addr + 0x1000,
                           radio.BLOCK_SIZE):
             frame = radio._make_read_frame(addr, radio.BLOCK_SIZE)
-            # DEBUG
-            LOG.debug("Frame=" + util.hexprint(frame))
-
+            radio.pipe.log('Reading addr %04x' % addr)
             baofeng_common._rawsend(radio, frame)
 
             d = baofeng_common._rawrecv(radio, radio.BLOCK_SIZE + 5)
-
-            LOG.debug("Response Data= " + util.hexprint(d))
 
             data += d[5:]
 
@@ -133,6 +129,7 @@ def _upload(radio):
             data_addr = data_start_addr + addr - start_addr
             data = radio.get_mmap()[data_addr:data_addr + radio.BLOCK_SIZE]
             frame = radio._make_frame(b"W", addr, radio.BLOCK_SIZE, data)
+            radio.pipe.log('Sending addr %04x' % addr)
             baofeng_common._rawsend(radio, frame)
 
             # receiving the response
@@ -158,11 +155,15 @@ class UV17(baofeng_uv17Pro.UV17Pro):
 
     MODES = ["FM", "NFM"]
     BLOCK_ORDER = [16, 17, 18, 19,  24, 25, 26, 4, 6]
+
+    # Add extra read blocks (e.g. calibration block 2) to the end here:
+    BLOCK_O_READ = list(BLOCK_ORDER)
+
     MEM_TOTAL = 0x9000
     WRITE_MEM_TOTAL = 0x9000
     BLOCK_SIZE = 0x40
     BAUD_RATE = 57600
-    _magic = b"PSEARCH"
+    _idents = [b"PSEARCH"]
     _magics = [(b"PASSSTA", 3),
                (b"SYSINFO", 1),
                (b"\x56\x00\x00\x0A\x0D", 13),

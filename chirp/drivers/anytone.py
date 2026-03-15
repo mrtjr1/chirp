@@ -132,6 +132,13 @@ struct {
   char welcome[8];
 } settings;
 
+#seekto 0x0400;
+struct {
+    u8 code[12];
+    u8 len;
+    u8 unknown2[3];
+} dtmf_codes[16];
+
 #seekto 0x0540;
 struct memory memblk1[12];
 
@@ -234,6 +241,11 @@ valid_model = [b'QX588UV', b'HR-2040', b'DB-50M\x00', b'DB-750X']
 
 
 def _ident(radio):
+    # Chew garbage
+    try:
+        radio.pipe.read(32)
+    except Exception:
+        raise errors.RadioError("Unable to flush serial connection")
     radio.pipe.timeout = 1
     _echo_write(radio, b"PROGRAM")
     response = radio.pipe.read(3)
@@ -406,11 +418,12 @@ class AnyTone5888UVRadio(chirp_common.CloneModeRadio,
         rf.valid_modes = ["FM", "NFM", "AM"]
         rf.valid_tmodes = ['', 'Tone', 'TSQL', 'DTCS', 'Cross']
         rf.valid_cross_modes = ['Tone->DTCS', 'DTCS->Tone',
+                                'DTCS->DTCS',
                                 '->Tone', '->DTCS', 'Tone->Tone']
         rf.valid_tones = TONES
         rf.valid_dtcs_codes = chirp_common.ALL_DTCS_CODES
         rf.valid_bands = [(108000000, 500000000)]
-        rf.valid_characters = chirp_common.CHARSET_UPPER_NUMERIC + "-"
+        rf.valid_characters = chirp_common.CHARSET_ALPHANUMERIC + "-*#"
         rf.valid_name_length = 7
         rf.valid_power_levels = POWER_LEVELS
         rf.memory_bounds = (1, NUMBER_OF_MEMORY_LOCATIONS)
@@ -465,7 +478,7 @@ class AnyTone5888UVRadio(chirp_common.CloneModeRadio,
             mem.freq += 50
 
         mem.offset = int(_mem.offset) * 100
-        mem.name = str(_mem.name).rstrip()
+        mem.name = str(_mem.name).rstrip().replace('\x00', '')
         mem.duplex = DUPLEXES[_mem.duplex]
         mem.mode = _mem.is_am and "AM" or MODES[_mem.channel_width]
         mem.tuning_step = TUNING_STEPS[_mem.tune_step]
@@ -701,11 +714,33 @@ class AnyTone5888UVRadio(chirp_common.CloneModeRadio,
                                                 current_index=_settings.mute))
         basic.append(rs)
 
+        dtmf = RadioSettingGroup('dtmf', 'DTMF')
+        for i in range(16):
+            length = int(self._memobj.dtmf_codes[i].len)
+            val = bitwise.bcd_to_numeric_str(self._memobj.dtmf_codes[i].code)
+            val = val[:length]
+            val = val.replace('E', '*').replace('F', '#')
+            rs = RadioSetting('dtmf%i' % i, 'DTMF M%i' % (i + 1),
+                              RadioSettingValueString(
+                                  0, 24,
+                                  val, autopad=False,
+                                  charset='01234567890*#abcdABCD'))
+            dtmf.append(rs)
+
+        settings.append(dtmf)
         return settings
 
     def set_settings(self, settings):
         _settings = self._memobj.settings
         for element in settings:
+            if element.get_name() == 'dtmf':
+                for i in range(16):
+                    val = str(element['dtmf%i' % i].value).strip()
+                    val = val.replace('*', 'E').replace('#', 'F')
+                    self._memobj.dtmf_codes[i].len = len(val)
+                    bitwise.numeric_str_to_bcd(
+                        self._memobj.dtmf_codes[i].code, val)
+                continue
             if not isinstance(element, RadioSetting):
                 self.set_settings(element)
                 continue

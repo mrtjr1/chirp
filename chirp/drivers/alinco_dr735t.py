@@ -140,7 +140,7 @@ class AlincoDR735T(chirp_common.CloneModeRadio):
 
         for channel_no in range(0, self._no_channels):
 
-            command = f"AL~EEPEL{channel_no<<6 :04X}R\r\n".encode()
+            command = f"AL~EEPEL{channel_no << 6:04X}R\r\n".encode()
             self.pipe.write(command)
             self.pipe.read(len(command))
             channel_spec = self.pipe.read(128)  # 64 bytes, as hex
@@ -173,7 +173,7 @@ class AlincoDR735T(chirp_common.CloneModeRadio):
         for channel_no in range(0, self._no_channels):
             write_data = self.get_mmap()[channel_no*64:(channel_no+1)*64]
             write_data = codecs.encode(write_data, 'hex').upper()
-            command = f"AL~EEPEL{channel_no<<6 :04X}W".encode(
+            command = f"AL~EEPEL{channel_no << 6:04X}W".encode(
             ) + write_data + b"\r\n"
             LOG.debug(f"COMM: {command}")
             self.pipe.write(command)
@@ -243,6 +243,7 @@ class AlincoDR735T(chirp_common.CloneModeRadio):
             mem.freq = int(_mem.frequency)
             mem.name = "".join([CHARSET[_mem.name[i]]
                                for i in range(6)]).strip()
+            mem.name = mem.name.replace('\x00', '')
 
             mem.tmode = self.TONE_MODE_MAP[int(_mem.subtone_selection)]
             mem.duplex = self.SHIFT_DIR_MAP[_mem.shift_direction]
@@ -284,16 +285,14 @@ class AlincoDR735T(chirp_common.CloneModeRadio):
                 mem.power) if mem.power in self.POWER_MAP else 0
             _mem.skip = 0x01 if mem.skip == "S" else 0x00
             try:
-                _mem.rx_tone_index = ALINCO_TONES.index(
-                    mem.rtone)
+                _mem.rx_tone_index = ALINCO_TONES.index(mem.rtone)
             except ValueError:
                 raise errors.UnsupportedToneError("This radio does "
                                                   "not support "
                                                   "tone %.1fHz" % mem.rtone)
             try:
 
-                _mem.tx_tone_index = ALINCO_TONES.index(
-                    mem.ctone)
+                _mem.tx_tone_index = ALINCO_TONES.index(mem.ctone)
             except ValueError:
                 raise errors.UnsupportedToneError("This radio does "
                                                   "not support "
@@ -328,82 +327,92 @@ class AlincoDR735T(chirp_common.CloneModeRadio):
         het_mode.set_doc("Heterodyne Mode")
 
         bcl = RadioSetting("bcl", "BCL",
-                           RadioSettingValueBoolean(
-                               False
-                           ))
+                           RadioSettingValueBoolean(False))
         bcl.set_doc("Busy Channel Lockout")
+
+        fav = RadioSetting("fav", "Favorite",
+                           RadioSettingValueBoolean(False))
+        fav.set_doc("Favorite Channel")
+
+        bell = RadioSetting("bell", "Bell",
+                            RadioSettingValueBoolean(False))
+        bell.set_doc("Bell Alert")
 
         stby_screen = RadioSetting("stby_screen", "Standby Screen Color",
                                    RadioSettingValueList(
                                        self.SCREEN_COLOR_MAP,
-                                       current=self.SCREEN_COLOR_MAP[0]
-                                   ))
+                                       current=self.SCREEN_COLOR_MAP[0]))
         stby_screen.set_doc("Standby Screen Color")
 
         rx_screen = RadioSetting("rx_screen", "RX Screen Color",
                                  RadioSettingValueList(
                                      self.SCREEN_COLOR_MAP,
-                                     current=self.SCREEN_COLOR_MAP[0]
-                                 ))
+                                     current=self.SCREEN_COLOR_MAP[0]))
         rx_screen.set_doc("RX Screen Color")
 
         tx_screen = RadioSetting("tx_screen", "TX Screen Color",
                                  RadioSettingValueList(
                                      self.SCREEN_COLOR_MAP,
-                                     current=self.SCREEN_COLOR_MAP[0]
-                                 ))
+                                     current=self.SCREEN_COLOR_MAP[0]))
 
         tx_screen.set_doc("TX Screen Color")
 
         mem.extra.append(het_mode)
         mem.extra.append(bcl)
+        mem.extra.append(fav)
+        mem.extra.append(bell)
         mem.extra.append(stby_screen)
         mem.extra.append(rx_screen)
         mem.extra.append(tx_screen)
 
     def _get_extra(self, _mem, mem):
         mem.extra = RadioSettingGroup("extra", "Extra")
-        het_mode = RadioSetting("heterodyne_mode", "Heterodyne Mode",
-                                RadioSettingValueList(
-                                    self.HET_MODE_MAP,
-                                    current=self.HET_MODE_MAP[int(
-                                        _mem.heterodyne_mode)]
-                                ))
+        het_mode = RadioSetting(
+            "heterodyne_mode", "Heterodyne Mode",
+            RadioSettingValueList(
+                self.HET_MODE_MAP,
+                current_index=int(_mem.heterodyne_mode)))
         het_mode.set_doc("Heterodyne Mode")
 
         bcl = RadioSetting("bcl", "BCL",
                            RadioSettingValueBoolean(
-                               bool(_mem.busy_channel_lockout)
-                           ))
+                               bool(_mem.busy_channel_lockout)))
         bcl.set_doc("Busy Channel Lockout")
 
-        stby_screen = RadioSetting("stby_screen", "Standby Screen Color",
-                                   RadioSettingValueList(
-                                       self.SCREEN_COLOR_MAP,
-                                       current=self.SCREEN_COLOR_MAP[int(
-                                           _mem.standby_screen_color)]
-                                   ))
+        fav = RadioSetting("fav", "Favorite",
+                           RadioSettingValueBoolean(bool(_mem.favorite)))
+        fav.set_doc("Favorite Channel")
+
+        bell = RadioSetting("bell", "Bell",
+                            RadioSettingValueBoolean(bool(_mem.bell)))
+        bell.set_doc("Bell Alert")
+
+        stby_screen = RadioSetting(
+            "stby_screen", "Standby Screen Color",
+            RadioSettingValueList(
+                self.SCREEN_COLOR_MAP,
+                current_index=int(_mem.standby_screen_color)))
         stby_screen.set_doc("Standby Screen Color")
 
-        rx_screen = RadioSetting("rx_screen", "RX Screen Color",
-                                 RadioSettingValueList(
-                                     self.SCREEN_COLOR_MAP,
-                                     current=self.SCREEN_COLOR_MAP[int(
-                                         _mem.rx_screen_color)]
-                                 ))
+        rx_screen = RadioSetting(
+            "rx_screen", "RX Screen Color",
+            RadioSettingValueList(
+                self.SCREEN_COLOR_MAP,
+                current_index=int(_mem.rx_screen_color)))
         rx_screen.set_doc("RX Screen Color")
 
-        tx_screen = RadioSetting("tx_screen", "TX Screen Color",
-                                 RadioSettingValueList(
-                                     self.SCREEN_COLOR_MAP,
-                                     current=self.SCREEN_COLOR_MAP[int(
-                                         _mem.tx_screen_color)]
-                                 ))
+        tx_screen = RadioSetting(
+            "tx_screen", "TX Screen Color",
+            RadioSettingValueList(
+                self.SCREEN_COLOR_MAP,
+                current_index=int(_mem.tx_screen_color)))
         tx_screen.set_doc("TX Screen Color")
 
         mem.extra.append(het_mode)
         mem.extra.append(bcl)
         mem.extra.append(stby_screen)
+        mem.extra.append(fav)
+        mem.extra.append(bell)
         mem.extra.append(rx_screen)
         mem.extra.append(tx_screen)
 
@@ -416,8 +425,13 @@ class AlincoDR735T(chirp_common.CloneModeRadio):
                     setting.value else self.HET_MODE_MAP[0]
 
             if setting.get_name() == "bcl":
-                _mem.busy_channel_lockout = \
-                    0x01 if setting.value else 0x00
+                _mem.busy_channel_lockout = int(setting.value)
+
+            if setting.get_name() == "fav":
+                _mem.favorite = int(setting.value)
+
+            if setting.get_name() == "bell":
+                _mem.bell = int(setting.value)
 
             if setting.get_name() == "stby_screen":
                 _mem.standby_screen_color = \

@@ -28,6 +28,7 @@ import webbrowser
 
 
 import wx
+import wx.adv
 import wx.aui
 import wx.lib.newevent
 
@@ -50,6 +51,7 @@ from chirp.wxui import query_sources
 from chirp.wxui import radioinfo
 from chirp.wxui import radiothread
 from chirp.wxui import report
+from chirp.wxui import serialtrace
 from chirp.wxui import settingsedit
 from chirp import CHIRP_VERSION
 
@@ -181,7 +183,7 @@ class ChirpEditorSet(wx.Panel):
             radios = [radio]
             format = '%(type)s'
 
-        if len(radios) > 2:
+        if len(radios) > 2 or features.has_dynamic_subdevices:
             LOG.info('Using TreeBook because radio has %i devices',
                      len(radios))
             self._editors = wx.Treebook(self, style=wx.NB_RIGHT)
@@ -242,6 +244,7 @@ class ChirpEditorSet(wx.Panel):
         page.selected()
         wx.PostEvent(self, EditorSetChanged(self.GetId(), editorset=self))
 
+    @common.error_proof()
     def save(self, filename=None):
         if filename is None:
             filename = self.filename
@@ -284,6 +287,11 @@ class ChirpEditorSet(wx.Panel):
     def current_editor_index(self):
         return self._editors.GetSelection()
 
+    def iter_editors(self, onlycls=None):
+        for title, editor in self._editor_index.items():
+            if onlycls is None or isinstance(editor, onlycls):
+                yield title, editor
+
     def select_editor(self, index=None, name=None):
         if index is None and name:
             try:
@@ -296,6 +304,9 @@ class ChirpEditorSet(wx.Panel):
                       index, name)
             return
         self._editors.SetSelection(index)
+
+    def selected(self):
+        self.current_editor.selected()
 
     def cb_copy(self, cut=False):
         return self.current_editor.cb_copy(cut=cut)
@@ -320,6 +331,7 @@ class ChirpEditorSet(wx.Panel):
         current = self.current_editor
         if not isinstance(current, memedit.ChirpMemEdit):
             raise Exception(_('Only memory tabs may be exported'))
+        LOG.debug('Exporting to %r' % filename)
         current.export_to_file(filename)
 
     def update_font(self):
@@ -409,12 +421,19 @@ class ChirpMain(wx.Frame):
 
         self.SetSize(int(CONF.get('window_w', 'state') or 1024),
                      int(CONF.get('window_h', 'state') or 768))
-        if not ALL_MAIN_WINDOWS and CONF.is_defined('window_x', 'state'):
-            # Only restore position for the first window of the session
-            self.SetPosition((CONF.get_int('window_x', 'state'),
-                              CONF.get_int('window_y', 'state')))
+        try:
+            x = max(0, CONF.get_int('window_x', 'state'))
+            y = max(0, CONF.get_int('window_y', 'state'))
+            if not ALL_MAIN_WINDOWS:
+                # Only restore position for the first window of the session
+                self.SetPosition((x, y))
+        except TypeError:
+            pass
 
         ALL_MAIN_WINDOWS.append(self)
+
+        if not CONF.get_bool('agreed_to_license', 'state'):
+            wx.CallAfter(self._menu_about, None)
 
         self.set_icon()
         self._drop_target = ChirpDropTarget(self)
@@ -448,6 +467,7 @@ class ChirpMain(wx.Frame):
         self._editors.Bind(wx.aui.EVT_AUINOTEBOOK_TAB_RIGHT_DOWN,
                            self._tab_rclick)
         self.Bind(wx.EVT_CLOSE, self._window_close)
+        self.Bind(common.EVT_CROSS_EDITOR_ACTION, self._editor_cross_action)
 
         self.statusbar = self.CreateStatusBar(2)
         self.statusbar.SetStatusWidths([-1, 200])
@@ -554,6 +574,7 @@ class ChirpMain(wx.Frame):
         with common.expose_logs(logging.WARNING, 'chirp.drivers', label,
                                 parent=self):
             if exists:
+                LOG.debug('Doing open from %r' % filename)
                 if not os.path.exists(filename):
                     raise FileNotFoundError(
                         _('File does not exist: %s') % filename)
@@ -585,7 +606,10 @@ class ChirpMain(wx.Frame):
                                      select=select)
         self.Bind(EVT_EDITORSET_CHANGED, self._editor_changed, editorset)
         self.Bind(common.EVT_STATUS_MESSAGE, self._editor_status, editorset)
+        editorset.Bind(common.EVT_EDITOR_REFRESH,
+                       lambda e: self._reload_editorset(e, editorset))
         self._update_editorset_title(editorset)
+        editorset.selected()
 
     def add_stock_menu(self):
         stock = wx.Menu()
@@ -605,6 +629,9 @@ class ChirpMain(wx.Frame):
         )
 
         def add_stock(fn):
+            if fn.startswith('.') or fn.endswith('~'):
+                LOG.debug('Ignoring stock file %s', fn)
+                return
             submenu_item = stock.Append(wx.ID_ANY, fn)
             self.Bind(wx.EVT_MENU,
                       self._menu_open_stock_config, submenu_item)
@@ -785,7 +812,10 @@ class ChirpMain(wx.Frame):
         edit_menu.Append(wx.MenuItem(edit_menu, wx.ID_SEPARATOR))
 
         for item in memedit_items[common.EditorMenuItem.MENU_EDIT]:
-            edit_menu.Append(item)
+            if item.GetId() in (wx.ID_UNDO, wx.ID_REDO):
+                edit_menu.Insert(0, item)
+            else:
+                edit_menu.Append(item)
             self.Bind(wx.EVT_MENU, self.do_editor_callback, item)
             item.add_menu_callback()
 
@@ -856,6 +886,7 @@ class ChirpMain(wx.Frame):
         source_menu.Append(query_rr_item)
 
         query_rb_item = wx.MenuItem(source_menu, wx.NewId(), 'RepeaterBook')
+        query_rb_item.SetAccel(wx.AcceleratorEntry(updownmod, ord('B')))
         self.Bind(wx.EVT_MENU, self._menu_query_rb, query_rb_item)
         source_menu.Append(query_rb_item)
 
@@ -863,10 +894,19 @@ class ChirpMain(wx.Frame):
         self.Bind(wx.EVT_MENU, self._menu_query_dm, query_dm_item)
         source_menu.Append(query_dm_item)
 
-        query_prz_item = wx.MenuItem(source_menu, wx.NewId(),
-                                     'przemienniki.net')
-        self.Bind(wx.EVT_MENU, self._menu_query_prz, query_prz_item)
-        source_menu.Append(query_prz_item)
+        query_prznet_item = wx.MenuItem(source_menu, wx.NewId(),
+                                        'przemienniki.net')
+        self.Bind(wx.EVT_MENU, self._menu_query_prznet, query_prznet_item)
+        source_menu.Append(query_prznet_item)
+
+        query_przeu_item = wx.MenuItem(source_menu, wx.NewId(),
+                                       'przemienniki.eu')
+        self.Bind(wx.EVT_MENU, self._menu_query_przeu, query_przeu_item)
+        source_menu.Append(query_przeu_item)
+
+        query_mapy73pl_item = wx.MenuItem(source_menu, wx.NewId(), 'mapy73.pl')
+        self.Bind(wx.EVT_MENU, self._menu_query_mapy73pl, query_mapy73pl_item)
+        source_menu.Append(query_mapy73pl_item)
 
         radio_menu.Append(wx.MenuItem(radio_menu, wx.ID_SEPARATOR))
 
@@ -977,6 +1017,12 @@ class ChirpMain(wx.Frame):
         help_menu.Append(self.bug_report_item)
         self.bug_report_item.Enable(False)
 
+        if developer.developer_mode():
+            trace_item = wx.MenuItem(help_menu, wx.NewId(),
+                                     _('Open last serial trace'))
+            self.Bind(wx.EVT_MENU, self._menu_last_trace, trace_item)
+            help_menu.Append(trace_item)
+
         menu_bar = wx.MenuBar()
         menu_bar.Append(file_menu, wx.GetStockLabel(wx.ID_FILE))
         menu_bar.Append(edit_menu, wx.GetStockLabel(wx.ID_EDIT))
@@ -1080,6 +1126,9 @@ class ChirpMain(wx.Frame):
     def _editor_page_changed(self, event):
         self._editors.GetPage(event.GetSelection())
         self._update_window_for_editor()
+        editors = self._editors.GetPage(event.GetSelection())
+        if editors:
+            editors.selected()
 
     def _editor_changed(self, event):
         self._update_editorset_title(event.editorset)
@@ -1088,6 +1137,83 @@ class ChirpMain(wx.Frame):
     def _editor_status(self, event):
         # FIXME: Should probably only do this for the current editorset
         self.statusbar.SetStatusText(event.message)
+
+    @common.error_proof()
+    def _reload_editorset(self, event, editorset):
+        # Rebuild a ChirpEditorSet for a radio who has undergone some
+        # fundamental change
+        LOG.info('Editor %s set %s needs refresh' % (
+            event.GetEventObject(), editorset))
+
+        # Capture the index of the current editorset, the editor within, its
+        # class, and scroll position
+        index = self._editors.GetSelection()
+        selected_editor_idx = editorset.current_editor_index
+        selected_editor_cls = editorset.current_editor.__class__
+        selected_editor_pos = editorset.current_editor.get_scroll_pos()
+
+        # Build the new editorset from the previous radio and filename
+        new_eset = ChirpEditorSet(editorset.radio, editorset.filename,
+                                  self._editors)
+        new_eset._modified = editorset.modified
+
+        # Remove the current one and replace with the new one
+        self._editors.DeletePage(index)
+        self.add_editorset(new_eset, atindex=index)
+        self._update_window_for_editor()
+
+        # Try to find the equivalent editor we were on. Must be at least the
+        # same index, and same class. This is likely to be a SettingsEdit
+        # change that adds a MemEdit. However, if this ever removes one, it
+        # won't work.
+        for i, (name, editor) in enumerate(new_eset.iter_editors()):
+            if i >= selected_editor_idx and isinstance(editor,
+                                                       selected_editor_cls):
+                LOG.debug('Selecting editor %i type %s name %r',
+                          i, selected_editor_cls.__name__, name)
+                new_eset.select_editor(i)
+                new_eset.current_editor.set_scroll_pos(selected_editor_pos)
+
+    def _editor_cross_action(self, event):
+        tabs = {}
+        for i in range(self._editors.GetPageCount()):
+            page = self._editors.GetPage(i)
+            for title, editor in page.iter_editors(
+                    onlycls=memedit.ChirpMemEdit):
+                tabs['%s::%s' % (os.path.basename(page.filename), title)] = \
+                    editor
+
+        d = wx.Dialog(self, title=_('Choose Diff Target'))
+        vbox = wx.BoxSizer(wx.VERTICAL)
+        d.SetSizer(vbox)
+
+        label = wx.StaticText(d, label=_('Select a tab and memory to diff'),
+                              style=wx.ALIGN_CENTER_HORIZONTAL)
+        tab = wx.Choice(d, choices=list(tabs.keys()))
+        try:
+            tab.SetStringSelection(self._last_diff_tab)
+        except AttributeError:
+            # No last default
+            pass
+        memory = wx.SpinCtrl(d)
+        memory.SetMin(0)
+        memory.SetMax(2000)
+        memory.SetValue(event.memory)
+        buttons = d.CreateButtonSizer(wx.OK | wx.CANCEL)
+
+        vbox.Add(label, proportion=1, flag=wx.EXPAND | wx.ALL, border=10)
+        vbox.Add(tab, proportion=0, flag=wx.EXPAND | wx.ALL, border=10)
+        vbox.Add(memory, proportion=0, flag=wx.EXPAND | wx.ALL, border=10)
+        vbox.Add(buttons, proportion=0, flag=wx.EXPAND)
+        d.CenterOnParent()
+        c = d.ShowModal()
+        self._last_diff_tab = tab.GetStringSelection()
+        if c == wx.ID_OK:
+            mem_a = event.GetEventObject()._radio.get_raw_memory(event.memory)
+            editor = tabs[tab.GetStringSelection()]
+            mem_b = editor._radio.get_raw_memory(memory.GetValue())
+            with developer.MemoryDialog((mem_a, mem_b), self) as d:
+                d.ShowModal()
 
     def _editor_close(self, event):
         eset = self._editors.GetPage(event.GetSelection())
@@ -1161,6 +1287,9 @@ class ChirpMain(wx.Frame):
 
         for menu, items in self.editor_menu_items.items():
             for item in items:
+                if item.GetId() in (wx.ID_UNDO, wx.ID_REDO):
+                    # These are managed by the editor always
+                    continue
                 editor_match = (
                     eset and
                     isinstance(eset.current_editor, item.editor_class) or
@@ -1199,6 +1328,9 @@ class ChirpMain(wx.Frame):
                           for fn in open_files if fn),
                  'state')
         config._CONFIG.save()
+
+        # Clean up any trace files we left
+        serialtrace.purge_trace_files(0)
 
         ALL_MAIN_WINDOWS.remove(self)
         self.Destroy()
@@ -1358,6 +1490,7 @@ class ChirpMain(wx.Frame):
         if r == wx.ID_YES:
             with common.expose_logs(logging.WARNING, 'chirp.drivers',
                                     _('Import messages'), parent=self):
+                LOG.debug('Doing import from %r' % filename)
                 radio = directory.get_radio_by_image(filename)
                 self.current_editorset.current_editor.memedit_import_all(radio)
         elif r == wx.ID_NO:
@@ -1477,12 +1610,13 @@ class ChirpMain(wx.Frame):
 
         trans = wx.Translations.Get()
         langs = {fmt_lang(wx.Locale.FindLanguageInfo(code)): code
-                 for code in trans.GetAvailableTranslations('CHIRP')}
+                 for code in trans.GetAvailableTranslations('CHIRP')
+                 if code != 'messages'}
         # This is stupid, but wx.GetSingleChoice does not honor the width
-        # parameter. But, we can pad out the automatic sepection to get some
+        # parameter. But, we can pad out the automatic selection to get some
         # extra padding in the dialog since we don't otherwise index it.
         choices = ([_('Automatic from system') + ' ' * 30] +
-                   sorted(langs.keys()))
+                   sorted(langs.keys(), key=str.casefold))
         try:
             current = wx.Locale.FindLanguageInfo(
                 CONF.get('force_language', 'prefs'))
@@ -1514,30 +1648,30 @@ class ChirpMain(wx.Frame):
                             'to take effect'),
                           _('Restart Required'))
 
-    def _make_backup(self, radio):
+    def _make_backup(self, radio, backup_type):
         if not isinstance(radio, chirp_common.CloneModeRadio):
             LOG.debug('Not backing up %s' % radio)
             return
         backup_dir = chirp_platform.get_platform().config_file('backups')
         now = datetime.datetime.now()
-        fn = os.path.join(backup_dir,
-                          '%s_%s' % (directory.radio_class_id(radio.__class__),
-                                     now.strftime('%Y%m%dT%H%M%S.img')))
+        backup_fn = os.path.join(backup_dir,
+                                 '%s_%s_%s' % (directory.radio_class_id(
+                                               radio.__class__),
+                                               backup_type,
+                                               now.strftime(
+                                                   '%Y%m%dT%H%M%S.img')))
         try:
             os.makedirs(backup_dir, exist_ok=True)
-            radio.save(fn)
-            LOG.info('Saved backup to %s', fn)
+            radio.save(backup_fn)
+            LOG.info('Saved %s backup to %s', backup_type, backup_fn)
         except Exception as e:
-            LOG.warning('Failed to backup %s: %s', radio, e)
+            LOG.warning('Failed to backup %s %s: %s', backup_type, radio, e)
             return
 
         try:
             keep_days = CONF.get_int('keep_backups_days', 'prefs')
         except TypeError:
             keep_days = 365
-        if keep_days < 0:
-            # Never prune
-            return
         try:
             files = os.listdir(backup_dir)
             bydate = [(os.stat(os.path.join(backup_dir, f)).st_mtime, f)
@@ -1545,7 +1679,7 @@ class ChirpMain(wx.Frame):
             now = time.time()
             for mtime, fn in sorted(bydate):
                 age = (now - mtime) // 86400
-                if age > keep_days:
+                if keep_days > 0 and age > keep_days:
                     os.remove(os.path.join(backup_dir, fn))
                     LOG.warning('Pruned backup %s older than %i days',
                                 fn, keep_days)
@@ -1556,13 +1690,15 @@ class ChirpMain(wx.Frame):
         except Exception as e:
             LOG.exception('Failed to prune: %s' % e)
 
+        return backup_fn
+
     def _menu_download(self, event):
         self.enable_bugreport()
         with clone.ChirpDownloadDialog(self) as d:
             d.Centre()
             if d.ShowModal() == wx.ID_OK:
                 radio = d._radio
-                self._make_backup(radio)
+                self._make_backup(radio, 'download')
                 report.report_model(radio, 'download')
                 if isinstance(radio, chirp_common.LiveRadio):
                     editorset = ChirpLiveEditorSet(radio, None, self._editors)
@@ -1572,6 +1708,7 @@ class ChirpMain(wx.Frame):
 
     def _menu_upload(self, event):
         radio = self.current_editorset.radio
+        fn = self._make_backup(radio, 'upload')
         report.report_model(radio, 'upload')
         CSVRadio = directory.get_radio('Generic_CSV')
 
@@ -1591,8 +1728,15 @@ class ChirpMain(wx.Frame):
         else:
             d = clone.ChirpUploadDialog(radio, self)
 
-        d.Centre()
-        d.ShowModal()
+        with d:
+            d.Centre()
+            r = d.ShowModal()
+            if r != wx.ID_OK:
+                LOG.info('Removing un-uploaded backup %s', fn)
+                try:
+                    os.remove(fn)
+                except Exception:
+                    pass
 
     @common.error_proof()
     def _menu_reload_driver(self, event, andfile=False):
@@ -1644,29 +1788,48 @@ class ChirpMain(wx.Frame):
         # successfully
         last_editor = self.current_editorset.current_editor_index
         self.current_editorset.close()
-        self._editors.DeletePage(self._editors.GetSelection())
+        current_index = self._editors.GetSelection()
+        self._editors.DeletePage(current_index)
         self._update_window_for_editor()
 
         # Mimic the File->Open process to get a new editorset based
         # on our franken-radio
         editorset = ChirpEditorSet(new_radio, filename, self._editors)
-        self.add_editorset(editorset, select=True)
+        self.add_editorset(editorset, select=True, atindex=current_index)
         editorset.select_editor(index=last_editor)
-        editorset.current_editor.set_scroll_pos(editor_pos)
+        try:
+            editorset.current_editor.set_scroll_pos(editor_pos)
+        except TypeError:
+            # Likely the editor at our old index is no longer the same type,
+            # so don't freak out
+            pass
 
         LOG.info('Reloaded radio driver%s in place; good luck!' % (
             andfile and ' (and file)' or ''))
 
     def _menu_interact_driver(self, event):
         LOG.warning('Going to interact with radio at the console')
+
         radio = self.current_editorset.current_editor.radio
-        import code
         locals = {'main': self,
                   'radio': radio}
+
         if self.current_editorset.radio != radio:
             locals['parent_radio'] = self.current_editorset.radio
-        code.interact(banner='Locals are: %s' % (', '.join(locals.keys())),
-                      local=locals)
+
+        banner = 'Locals are: %s' % (', '.join(locals.keys()))
+
+        # Use ipython if it's installed which gives tab complete and some other
+        # nice features over the built in REPL.
+        try:
+            from IPython.terminal.embed import InteractiveShellEmbed
+
+            shell = InteractiveShellEmbed()
+            shell(header=banner, local_ns=locals)
+
+        except ModuleNotFoundError:
+            import code
+            code.interact(banner=banner, local=locals)
 
     @common.error_proof()
     def load_module(self, filename):
@@ -1714,7 +1877,7 @@ class ChirpMain(wx.Frame):
                                'another source is akin to giving them direct '
                                'access to your computer and everything on '
                                'it! Proceed despite this risk?'),
-                             'Warning',
+                             _('Warning'),
                              wx.ICON_WARNING | wx.YES_NO)
         if r.ShowModal() != wx.ID_YES:
             return
@@ -1731,12 +1894,71 @@ class ChirpMain(wx.Frame):
 
     def _menu_about(self, event):
         pyver = sys.version_info
-        aboutinfo = 'CHIRP %s on Python %s wxPython %s' % (
-            CHIRP_VERSION,
-            '%s.%s.%s' % (pyver.major, pyver.minor, pyver.micro),
-            wx.version())
-        wx.MessageBox(aboutinfo, _('About CHIRP'),
-                      wx.OK | wx.ICON_INFORMATION)
+        d = wx.Dialog(self, title=_('About CHIRP'))
+        d.SetSize((500, 400))
+        vbox = wx.BoxSizer(wx.VERTICAL)
+        d.SetSizer(vbox)
+
+        label = wx.StaticText(d, label='CHIRP %s' % CHIRP_VERSION)
+        label.SetFont(label.GetFont().Scale(2))
+        vbox.Add(label, 0,
+                 border=10,
+                 flag=wx.ALIGN_CENTER | wx.ALL)
+
+        details = ('Python %s.%s.%s' % (pyver.major, pyver.minor, pyver.micro),
+                   'wxPython %s' % wx.version())
+        for detail in details:
+            label = wx.StaticText(d, label=detail)
+            vbox.Add(label, 0,
+                     border=10,
+                     flag=wx.ALIGN_CENTER)
+
+        documentation_link = wx.adv.HyperlinkCtrl(
+            d, label=_('Click here for online documentation'),
+            url=('https://chirpmyradio.com/projects/chirp/wiki/Documentation'))
+        vbox.Add(documentation_link, border=10, flag=wx.ALL | wx.ALIGN_CENTER)
+
+        licheader = """
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details."""
+
+        lic = wx.TextCtrl(
+            d, value=licheader.strip(),
+            style=wx.TE_WORDWRAP | wx.TE_MULTILINE | wx.TE_READONLY)
+        vbox.Add(lic, border=10, flag=wx.ALL | wx.EXPAND, proportion=1)
+
+        license_link = wx.adv.HyperlinkCtrl(
+            d, label=_('Click here for full license text'),
+            url=('https://www.chirpmyradio.com/projects/chirp/repository/'
+                 'github/revisions/master/entry/COPYING'))
+        vbox.Add(license_link, border=10, flag=wx.ALL | wx.ALIGN_CENTER)
+
+        license_approved = CONF.get_bool('agreed_to_license', 'state')
+
+        if not license_approved:
+            buttons = wx.OK | wx.CANCEL
+        else:
+            buttons = wx.OK
+        bs = d.CreateButtonSizer(buttons)
+        vbox.Add(bs, border=10, flag=wx.ALL)
+        if not license_approved:
+            d.FindWindowById(wx.ID_OK).SetLabel(_('Agree'))
+            d.FindWindowById(wx.ID_CANCEL).SetLabel(_('Close'))
+        d.Center()
+        r = d.ShowModal()
+        if r == wx.ID_OK:
+            LOG.debug('User approved license')
+            CONF.set_bool('agreed_to_license', True, 'state')
+        else:
+            LOG.debug('User did not approve license - exiting')
+            self.Close()
 
     def _menu_developer(self, menuitem, event):
         developer.developer_mode(menuitem.IsChecked())
@@ -1818,6 +2040,14 @@ class ChirpMain(wx.Frame):
                               _('Success'),
                               wx.ICON_INFORMATION)
 
+    def _menu_last_trace(self, event):
+        try:
+            fn = serialtrace.TRACEFILES[-1]
+            wx.LaunchDefaultApplication(fn)
+        except IndexError:
+            common.error_proof.show_error(
+                _('No traces stored'), parent=self)
+
     def _menu_auto_edits(self, event):
         CONF.set_bool('auto_edits', event.IsChecked(), 'state')
         LOG.debug('Set auto_edits=%s' % event.IsChecked())
@@ -1841,6 +2071,7 @@ class ChirpMain(wx.Frame):
             for shortname, name in plans:
                 CONF.set_bool(shortname, shortname == selected, 'bandplan')
 
+    @common.error_proof()
     def _do_network_query(self, query_cls):
         self.enable_bugreport()
         d = query_cls(self, title=_('Query %s') % query_cls.NAME)
@@ -1860,8 +2091,14 @@ class ChirpMain(wx.Frame):
     def _menu_query_dm(self, event):
         self._do_network_query(query_sources.DMRMARCQueryDialog)
 
-    def _menu_query_prz(self, event):
-        self._do_network_query(query_sources.PrzemiennikiQueryDialog)
+    def _menu_query_prznet(self, event):
+        self._do_network_query(query_sources.PrzemiennikiNetQueryDialog)
+
+    def _menu_query_przeu(self, event):
+        self._do_network_query(query_sources.PrzemiennikiEuQueryDialog)
+
+    def _menu_query_mapy73pl(self, event):
+        self._do_network_query(query_sources.Mapy73PlQueryDialog)
 
 
 def display_update_notice(version):

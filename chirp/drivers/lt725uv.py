@@ -406,21 +406,6 @@ def model_match(cls, data):
         return False
 
 
-def _split(rf, f1, f2):
-    """Returns False if the two freqs are in the same band (no split)
-    or True otherwise"""
-
-    # Determine if the two freqs are in the same band
-    for low, high in rf.valid_bands:
-        if f1 >= low and f1 <= high and \
-                f2 >= low and f2 <= high:
-            # If the two freqs are on the same Band this is not a split
-            return False
-
-    # If you get here is because the freq pairs are split
-    return True
-
-
 @directory.register
 class LT725UV(chirp_common.CloneModeRadio):
     """LUITON LT-725UV Radio"""
@@ -583,10 +568,10 @@ class LT725UV(chirp_common.CloneModeRadio):
         return getattr(self._memobj, "%s_memory%s" % (self._vfo, suffix))
 
     def _get_dcs(self, val):
-        return int(str(val)[2:-18])
+        return val.get_bbcd()
 
     def _set_dcs(self, val):
-        return int(str(val), 16)
+        return bitwise.dec_to_bbcd(val)
 
     def get_memory(self, number):
         _mem = self._memory_obj()[number - 1]
@@ -607,7 +592,8 @@ class LT725UV(chirp_common.CloneModeRadio):
         elif int(_mem.rxfreq) == int(_mem.txfreq):
             mem.duplex = ""
             mem.offset = 0
-        elif _split(self.get_features(), mem.freq, int(_mem.txfreq) * 10):
+        elif chirp_common.is_split(self.get_features().valid_bands,
+                                   mem.freq, int(_mem.txfreq) * 10):
             mem.duplex = "split"
             mem.offset = int(_mem.txfreq) * 10
         else:
