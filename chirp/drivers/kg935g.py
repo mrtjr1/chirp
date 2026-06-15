@@ -103,6 +103,22 @@ config_map_x20h = (     # map address, write size, write count
     # (0x800,  64, 2),    # settings
     # (0x880,  16, 1),    # VFO A
     # (0x8C0,  16, 1),    # VFO B
+    (0x14,   1,  1),    # Tx Range Lock
+    (0x900,  64, 250),  # Channel Memory 0-999
+    (0x4780, 32, 375),  # Memory Names 0-999
+    (0x7670, 8, 125),   # Ch Valid bytes 0-999
+    )
+config_map_x20g = (     # map address, write size, write count
+    # (0x00,   64, 512),  #- Use for full upload testing
+    # (0x44,   32, 1),    # Freq Limits
+    # (0x440,  8,  1),     # Area Message
+    # (0x480,  8, 5),    # Scan Groups
+    # (0x500,  8, 15),    # Call Codes
+    # (0x580,  8, 15),    # Call Names
+    # (0x600,  8, 5),    # FM Presets
+    # (0x800,  64, 2),    # settings
+    # (0x880,  16, 1),    # VFO A
+    # (0x8C0,  16, 1),    # VFO B
     (0x900,  64, 250),  # Channel Memory 0-999
     (0x4780, 32, 375),  # Memory Names 0-999
     (0x7670, 8, 125),   # Ch Valid bytes 0-999
@@ -1279,6 +1295,283 @@ _MEM_FORMAT_935H = """
     u8          valid[1000];
     """
 
+_MEM_FORMAT_XS20H = """
+    #seekto 0x0014;
+    struct {
+        u8    txlocked;
+    } lock;
+
+    #seekto 0x0044;
+    struct {
+        u32    rx_start;
+        u32    rx_stop;
+        u32    tx_start;
+        u32    tx_stop;
+    } uhf_limits;
+
+    #seekto 0x0054;
+    struct {
+        u32    rx_start;
+        u32    rx_stop;
+        u32    tx_start;
+        u32    tx_stop;
+    } vhf_limits;
+
+    #seekto 0x0400;
+    struct {
+        char     oem1[8];
+        char     unknown[2];
+        u8     unknown2[10];
+        u8     unknown3[10];
+        u8     unknown4[8];
+        char     oem2[10];
+        u8     version[6];
+        char     date[8];
+        u8     unknown5[2];
+        char     model[8];
+    } oem_info;
+
+    #seekto 0x0480;
+    struct {
+        u16    Group_lower1;
+        u16    Group_upper1;
+        u16    Group_lower2;
+        u16    Group_upper2;
+        u16    Group_lower3;
+        u16    Group_upper3;
+        u16    Group_lower4;
+        u16    Group_upper4;
+        u16    Group_lower5;
+        u16    Group_upper5;
+        u16    Group_lower6;
+        u16    Group_upper6;
+        u16    Group_lower7;
+        u16    Group_upper7;
+        u16    Group_lower8;
+        u16    Group_upper8;
+        u16    Group_lower9;
+        u16    Group_upper9;
+        u16    Group_lower10;
+        u16    Group_upper10;
+    } scan_groups;
+
+    #seekto 0x0500;
+    struct {
+        u8 cid[6];
+    } call_ids[20];
+
+    #seekto 0x0580;
+    struct {
+        char    call_name1[6];
+        char    call_name2[6];
+        char    call_name3[6];
+        char    call_name4[6];
+        char    call_name5[6];
+        char    call_name6[6];
+        char    call_name7[6];
+        char    call_name8[6];
+        char    call_name9[6];
+        char    call_name10[6];
+        char    call_name11[6];
+        char    call_name12[6];
+        char    call_name13[6];
+        char    call_name14[6];
+        char    call_name15[6];
+        char    call_name16[6];
+        char    call_name17[6];
+        char    call_name18[6];
+        char    call_name19[6];
+        char    call_name20[6];
+    } call_names;
+
+
+    #seekto 0x0600;
+    struct {
+        u16    FM_radio1;
+        u16    FM_radio2;
+        u16    FM_radio3;
+        u16    FM_radio4;
+        u16    FM_radio5;
+        u16    FM_radio6;
+        u16    FM_radio7;
+        u16    FM_radio8;
+        u16    FM_radio9;
+        u16    FM_radio10;
+        u16    FM_radio11;
+        u16    FM_radio12;
+        u16    FM_radio13;
+        u16    FM_radio14;
+        u16    FM_radio15;
+        u16    FM_radio16;
+        u16    FM_radio17;
+        u16    FM_radio18;
+        u16    FM_radio19;
+        u16    FM_radio20;
+        u16 unknown_pad_x0640[235];
+        u8 unknown07fe;
+        u8 unknown07ff;
+        u8      ponmsg;
+        char    dispstr[15];
+        u8 unknown0810;
+        u8 unknown0811;
+        u8 unknown0812;
+        u8 unknown0813;
+        u8 unknown0814;
+        u8      voice;
+        u8      timeout;
+        u8      toalarm;
+        u8      channel_menu;
+        u8      power_save;
+        u8      autolock;
+        u8      keylock;
+        u8      beep;
+        u8      stopwatch;
+        u8      vox;
+        u8      scan_rev;
+        u8      backlight;
+        u8      roger_beep;
+        char      mode_sw_pwd[6];
+        char      reset_pwd[6];
+        u16     pri_ch;
+        u8      ani_sw;
+        u8      ptt_delay;
+        u8      ani_code[6];
+        u8      dtmf_st;
+        u8      BCL_A;
+        u8      BCL_B;
+        u8      ptt_id;
+        u8      prich_sw;
+        u8 unknown083d;
+        u8 unknown083e;
+        u8 unknown083f;
+        u8      alert;
+        u8      pf1_shrt;
+        u8      pf1_long;
+        u8      pf2_shrt;
+        u8      pf2_long;
+        u8 unknown0845;
+        u8      work_mode_a;
+        u8      work_mode_b;
+        u8      dtmf_tx_time;
+        u8      dtmf_interval;
+        u8      main_band;
+        u16      work_ch_a;
+        u16      work_ch_b;
+        u8 unknown084f;
+        u8 unknown0850;
+        u8 unknown0851;
+        u8 unknown0852;
+        u8 unknown0853;
+        u8 unknown0854;
+        u8 unknown0855;
+        u8 unknown0856;
+        u8 unknown0857;
+        u8 unknown0858;
+        u8 unknown0859;
+        u8 unknown085a;
+        u8 unknown085b;
+        u8 unknown085c;
+        u8 unknown085d;
+        u8 unknown085e;
+        u8 unknown085f;
+        u8 unknown0860;
+        u8      TDR_single_mode;
+        u8      ring_time;
+        u8      ScnGrpA_Act;
+        u8      ScnGrpB_Act;
+        u8 unknown0865;
+        u8      rpt_tone;
+        u8 unknown0867;
+        u8      scan_det;
+        u8      ToneScnSave;
+        u8 unknown086a;
+        u8      smuteset;
+        u8      cur_call_grp;
+        u8      DspBrtAct;
+        u8      DspBrtSby;
+        u8 unknown086f;
+        u8      theme;
+        u8      batt_ind;
+        u8      wxalert;
+        u8      wxalert_type;
+        u8 VFO_repeater_a;
+        u8 VFO_repeater_b;
+        u8 sim_rec;
+        u8 unknown0877;
+        u8 unknown0878;
+        u8 unknown0879;
+        u8 unknown087a;
+        u8 unknown087b;
+        u8 unknown087c;
+        u8 unknown087d;
+        u8 unknown087e;
+        u8 unknown087f;
+    } settings;
+
+    #seekto 0x0880;
+    struct {
+        u32     rxfreq;
+        u32     unknown0;
+        u16     rxtone;
+        u16     txtone;
+        u8      scrambler:4,
+                power:4;
+        u8      unknown3:1,
+                unknown5:2,
+                unknown4:1,
+                cmpndr:1,
+                mute_mode:2,
+                iswide:1;
+        u8      step;
+        u8      squelch;
+      } vfoa;
+
+    #seekto 0x08c0;
+    struct {
+        u32     rxfreq;
+        u32     unknown0;
+        u16     rxtone;
+        u16     txtone;
+        u8      scrambler:4,
+                power:4;
+        u8      unknown3:1,
+                unknown5:2,
+                unknown4:1,
+                cmpndr:1,
+                mute_mode:2,
+                iswide:1;
+        u8      step;
+        u8      squelch;
+    } vfob;
+
+    #seekto 0x0900;
+    struct {
+        u32     rxfreq;
+        u32     txfreq;
+        u16     rxtone;
+        u16     txtone;
+        u8      scrambler:4,
+                power:4;
+        u8      unknown3:2,
+                scan_add:1,
+                favorite:1,
+                compander:1,
+                mute_mode:2,
+                iswide:1;
+        u8      unknown5;
+        u8      unknown6;
+    } memory[1000];
+
+    #seekto 0x4780;
+    struct {
+        u8    name[8];
+                u8    unknown[4];
+    } names[1000];
+
+    #seekto 0x7670;
+    u8          valid[1000];
+    """
+
 
 # Support for the Wouxun KG-935G radio
 # Serial coms are at 19200 baud
@@ -1691,6 +1984,7 @@ class KG935GRadio(chirp_common.CloneModeRadio,
         _mem.iswide = int(mem.mode == "FM")
         # set the tone
         self.tone_model.set_tone(mem, _mem)
+
         # set the power
         _mem.power = _mem.power & 0x3
         if mem.power is not None:
@@ -2514,7 +2808,7 @@ class KGXS20G(KG935GRadio):
     MODEL = "KG-XS20G"
     _model = b"KG-UV8D-A"
     _record_start = 0x79
-    config_map = config_map_x20h
+    config_map = config_map_x20g
     POWER_LEVELS = [chirp_common.PowerLevel("L", watts=5.0),
                     chirp_common.PowerLevel("H", watts=20.0)]
     HAS_SCRAMBLER = False
@@ -2546,6 +2840,26 @@ class KGXS20HRadio(KGXS20G):
     VENDOR = "Wouxun"
     MODEL = "KG-XS20H"
     HAS_SCRAMBLER = True
+    config_map = config_map_x20h
+
+    def get_features(self):
+        rf = super().get_features()
+        rf.has_settings = True  # Set to False until settings are mapped
+        return rf
+
+    def process_mmap(self):
+        self._memobj = bitwise.parse(_MEM_FORMAT_XS20H, self._mmap)
+
+    def _get_settings(self):
+        lmt_grp = RadioSettingGroup("lmt_grp", "Frequency Limits")
+        group = RadioSettings(lmt_grp)
+
+        val = self._memobj.lock.txlocked
+        rs = RadioSetting("lock.txlocked",
+                          "Locked - Limits Tx to Factory Range",
+                          RadioSettingValueBoolean(val))
+        lmt_grp.append(rs)
+        return group
 
 
 @directory.register
